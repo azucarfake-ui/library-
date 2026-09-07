@@ -1,0 +1,739 @@
+--[[
+	RedzUI v1.0.0
+	Librería de interfaz gráfica (GUI) para scripts de Roblox.
+
+	Uso básico (una vez subida a GitHub):
+		local RedzUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/TU_USUARIO/TU_REPO/main/RedzUI.lua"))()
+		local Window = RedzUI:CreateWindow({ Name = "Mi Hub" })
+		local Tab = Window:CreateTab("Principal")
+		Tab:CreateButton({ Name = "Saludar", Callback = function() print("Hola") end })
+
+	Ver README.md para la guía completa de publicación y la referencia de la API.
+]]
+
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Players          = game:GetService("Players")
+local CoreGui          = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================================================
+-- TEMA (puedes personalizar estos colores)
+-- =========================================================
+local Theme = {
+	Background   = Color3.fromRGB(20, 20, 23),
+	Panel        = Color3.fromRGB(28, 28, 32),
+	Element      = Color3.fromRGB(36, 36, 41),
+	ElementHover = Color3.fromRGB(44, 44, 50),
+	Accent       = Color3.fromRGB(214, 64, 64),
+	Text         = Color3.fromRGB(235, 235, 240),
+	SubText      = Color3.fromRGB(150, 150, 160),
+	Stroke       = Color3.fromRGB(48, 48, 54),
+}
+
+-- =========================================================
+-- UTILIDADES INTERNAS
+-- =========================================================
+local function New(class, props, children)
+	local inst = Instance.new(class)
+	for prop, value in pairs(props or {}) do
+		inst[prop] = value
+	end
+	for _, child in ipairs(children or {}) do
+		child.Parent = inst
+	end
+	return inst
+end
+
+local function Round(inst, radius)
+	New("UICorner", { CornerRadius = UDim.new(0, radius or 6), Parent = inst })
+	return inst
+end
+
+local function Stroke(inst, color, thickness)
+	New("UIStroke", { Color = color or Theme.Stroke, Thickness = thickness or 1, Parent = inst })
+	return inst
+end
+
+local function Tween(inst, props, time, style, dir)
+	local tw = TweenService:Create(
+		inst,
+		TweenInfo.new(time or 0.2, style or Enum.EasingStyle.Quad, dir or Enum.EasingDirection.Out),
+		props
+	)
+	tw:Play()
+	return tw
+end
+
+local function MakeDraggable(handle, frame)
+	local dragging, dragStart, startPos, dragInput
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	handle.InputChanged:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+			dragInput = input
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if input == dragInput and dragging then
+			local delta = input.Position - dragStart
+			frame.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+-- =========================================================
+-- LIBRERÍA PRINCIPAL
+-- =========================================================
+local RedzUI = {}
+
+function RedzUI:CreateWindow(config)
+	config = config or {}
+	local WindowName = config.Name or "RedzUI"
+	local SubTitle    = config.SubTitle or ""
+	local ToggleKey   = config.Keybind or Enum.KeyCode.RightShift
+	local WindowSize  = config.Size or UDim2.fromOffset(560, 380)
+
+	local ScreenGui = New("ScreenGui", {
+		Name = "RedzUI_" .. WindowName,
+		ResetOnSpawn = false,
+		ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+	})
+
+	local mounted = pcall(function()
+		ScreenGui.Parent = CoreGui
+	end)
+	if not mounted then
+		ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	end
+
+	local Main = New("Frame", {
+		Name = "Main",
+		Size = WindowSize,
+		Position = UDim2.fromScale(0.5, 0.5),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		BackgroundColor3 = Theme.Background,
+		Parent = ScreenGui,
+	})
+	Round(Main, 8)
+	Stroke(Main, Theme.Stroke, 1)
+
+	local TopBar = New("Frame", {
+		Name = "TopBar",
+		Size = UDim2.new(1, 0, 0, 42),
+		BackgroundColor3 = Theme.Panel,
+		Parent = Main,
+	})
+	Round(TopBar, 8)
+	New("Frame", {
+		Size = UDim2.new(1, 0, 0, 10),
+		Position = UDim2.new(0, 0, 1, -10),
+		BackgroundColor3 = Theme.Panel,
+		BorderSizePixel = 0,
+		Parent = TopBar,
+	})
+
+	New("TextLabel", {
+		Text = WindowName,
+		Font = Enum.Font.GothamBold,
+		TextSize = 15,
+		TextColor3 = Theme.Text,
+		BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(0.6, 0, 1, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = TopBar,
+	})
+
+	if SubTitle ~= "" then
+		New("TextLabel", {
+			Text = SubTitle,
+			Font = Enum.Font.Gotham,
+			TextSize = 12,
+			TextColor3 = Theme.SubText,
+			BackgroundTransparency = 1,
+			Position = UDim2.new(1, -160, 0, 0),
+			Size = UDim2.new(0, 150, 1, 0),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Parent = TopBar,
+		})
+	end
+
+	MakeDraggable(TopBar, Main)
+
+	local TabList = New("Frame", {
+		Name = "TabList",
+		Size = UDim2.new(0, 130, 1, -42),
+		Position = UDim2.new(0, 0, 0, 42),
+		BackgroundColor3 = Theme.Panel,
+		Parent = Main,
+	})
+	New("UIListLayout", {
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = TabList,
+	})
+	New("UIPadding", {
+		PaddingTop = UDim.new(0, 8),
+		PaddingLeft = UDim.new(0, 8),
+		PaddingRight = UDim.new(0, 8),
+		Parent = TabList,
+	})
+
+	local PageHolder = New("Frame", {
+		Name = "PageHolder",
+		Size = UDim2.new(1, -130, 1, -42),
+		Position = UDim2.new(0, 130, 0, 42),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Parent = Main,
+	})
+
+	local NotifyHolder = New("Frame", {
+		Name = "Notifications",
+		Size = UDim2.new(0, 260, 1, -20),
+		Position = UDim2.new(1, -270, 0, 10),
+		BackgroundTransparency = 1,
+		Parent = ScreenGui,
+	})
+	New("UIListLayout", {
+		Padding = UDim.new(0, 8),
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = NotifyHolder,
+	})
+
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then return end
+		if input.KeyCode == ToggleKey then
+			Main.Visible = not Main.Visible
+		end
+	end)
+
+	local Window = {}
+	local TabButtons = {}
+	local TabPages = {}
+	local FirstTab = true
+
+	function Window:Notify(opts)
+		opts = opts or {}
+		local title = opts.Title or "Aviso"
+		local content = opts.Content or ""
+		local duration = opts.Duration or 3
+
+		local Notif = New("Frame", {
+			Size = UDim2.new(1, 0, 0, 60),
+			BackgroundColor3 = Theme.Panel,
+			Parent = NotifyHolder,
+		})
+		Round(Notif, 6)
+		Stroke(Notif, Theme.Stroke, 1)
+
+		New("TextLabel", {
+			Text = title,
+			Font = Enum.Font.GothamBold,
+			TextSize = 13,
+			TextColor3 = Theme.Text,
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(10, 6),
+			Size = UDim2.new(1, -20, 0, 18),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = Notif,
+		})
+
+		New("TextLabel", {
+			Text = content,
+			Font = Enum.Font.Gotham,
+			TextSize = 12,
+			TextColor3 = Theme.SubText,
+			BackgroundTransparency = 1,
+			Position = UDim2.fromOffset(10, 26),
+			Size = UDim2.new(1, -20, 0, 28),
+			TextWrapped = true,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Parent = Notif,
+		})
+
+		task.delay(duration, function()
+			Tween(Notif, { BackgroundTransparency = 1 }, 0.3)
+			task.wait(0.3)
+			Notif:Destroy()
+		end)
+	end
+
+	function Window:Destroy()
+		ScreenGui:Destroy()
+	end
+
+	function Window:CreateTab(name)
+		local TabButton = New("TextButton", {
+			Text = name,
+			Font = Enum.Font.Gotham,
+			TextSize = 13,
+			TextColor3 = Theme.SubText,
+			BackgroundColor3 = Theme.Element,
+			AutoButtonColor = false,
+			Size = UDim2.new(1, 0, 0, 32),
+			Parent = TabList,
+		})
+		Round(TabButton, 6)
+
+		local Page = New("ScrollingFrame", {
+			Size = UDim2.new(1, -20, 1, -20),
+			Position = UDim2.fromOffset(10, 10),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			ScrollBarThickness = 3,
+			ScrollBarImageColor3 = Theme.Accent,
+			CanvasSize = UDim2.new(0, 0, 0, 0),
+			AutomaticCanvasSize = Enum.AutomaticSize.Y,
+			Visible = FirstTab,
+			Parent = PageHolder,
+		})
+		New("UIListLayout", {
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Parent = Page,
+		})
+
+		if FirstTab then
+			TabButton.BackgroundColor3 = Theme.Accent
+			TabButton.TextColor3 = Theme.Text
+			FirstTab = false
+		end
+
+		TabButtons[name] = TabButton
+		TabPages[name] = Page
+
+		TabButton.MouseButton1Click:Connect(function()
+			for tabName, btn in pairs(TabButtons) do
+				local isSelected = (tabName == name)
+				TabPages[tabName].Visible = isSelected
+				Tween(btn, { BackgroundColor3 = isSelected and Theme.Accent or Theme.Element }, 0.15)
+				btn.TextColor3 = isSelected and Theme.Text or Theme.SubText
+			end
+		end)
+
+		local Tab = {}
+
+		function Tab:CreateButton(opts)
+			opts = opts or {}
+			local btnName = opts.Name or "Botón"
+			local callback = opts.Callback or function() end
+
+			local Btn = New("TextButton", {
+				Text = btnName,
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundColor3 = Theme.Element,
+				AutoButtonColor = false,
+				Size = UDim2.new(1, 0, 0, 34),
+				Parent = Page,
+			})
+			Round(Btn, 6)
+
+			Btn.MouseEnter:Connect(function()
+				Tween(Btn, { BackgroundColor3 = Theme.ElementHover }, 0.15)
+			end)
+			Btn.MouseLeave:Connect(function()
+				Tween(Btn, { BackgroundColor3 = Theme.Element }, 0.15)
+			end)
+			Btn.MouseButton1Click:Connect(function()
+				Tween(Btn, { BackgroundColor3 = Theme.Accent }, 0.1)
+				task.wait(0.1)
+				Tween(Btn, { BackgroundColor3 = Theme.Element }, 0.2)
+				local ok, err = pcall(callback)
+				if not ok then
+					warn("[RedzUI] Error en botón '" .. btnName .. "': " .. tostring(err))
+				end
+			end)
+
+			return Btn
+		end
+
+		function Tab:CreateToggle(opts)
+			opts = opts or {}
+			local togName = opts.Name or "Toggle"
+			local callback = opts.Callback or function() end
+			local state = opts.Default or false
+
+			local Holder = New("Frame", {
+				Size = UDim2.new(1, 0, 0, 34),
+				BackgroundColor3 = Theme.Element,
+				Parent = Page,
+			})
+			Round(Holder, 6)
+
+			New("TextLabel", {
+				Text = togName,
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset(10, 0),
+				Size = UDim2.new(1, -60, 1, 0),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			local Switch = New("Frame", {
+				Size = UDim2.fromOffset(38, 20),
+				Position = UDim2.new(1, -48, 0.5, -10),
+				BackgroundColor3 = state and Theme.Accent or Theme.Background,
+				Parent = Holder,
+			})
+			Round(Switch, 10)
+
+			local Knob = New("Frame", {
+				Size = UDim2.fromOffset(16, 16),
+				Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
+				BackgroundColor3 = Theme.Text,
+				Parent = Switch,
+			})
+			Round(Knob, 8)
+
+			local Click = New("TextButton", {
+				Text = "",
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 1, 0),
+				Parent = Holder,
+			})
+
+			Click.MouseButton1Click:Connect(function()
+				state = not state
+				Tween(Switch, { BackgroundColor3 = state and Theme.Accent or Theme.Background }, 0.15)
+				Tween(Knob, { Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8) }, 0.15)
+				local ok, err = pcall(callback, state)
+				if not ok then
+					warn("[RedzUI] Error en toggle '" .. togName .. "': " .. tostring(err))
+				end
+			end)
+
+			return {
+				Set = function(_, value)
+					state = value
+					Switch.BackgroundColor3 = state and Theme.Accent or Theme.Background
+					Knob.Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+				end,
+			}
+		end
+
+		function Tab:CreateSlider(opts)
+			opts = opts or {}
+			local sldName = opts.Name or "Slider"
+			local min = opts.Min or 0
+			local max = opts.Max or 100
+			local default = math.clamp(opts.Default or min, min, max)
+			local callback = opts.Callback or function() end
+
+			local Holder = New("Frame", {
+				Size = UDim2.new(1, 0, 0, 46),
+				BackgroundColor3 = Theme.Element,
+				Parent = Page,
+			})
+			Round(Holder, 6)
+
+			New("TextLabel", {
+				Text = sldName,
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset(10, 4),
+				Size = UDim2.new(1, -60, 0, 18),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			local ValueLabel = New("TextLabel", {
+				Text = tostring(default),
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextColor3 = Theme.SubText,
+				BackgroundTransparency = 1,
+				Position = UDim2.new(1, -50, 0, 4),
+				Size = UDim2.new(0, 40, 0, 18),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Parent = Holder,
+			})
+
+			local Track = New("Frame", {
+				Size = UDim2.new(1, -20, 0, 6),
+				Position = UDim2.fromOffset(10, 30),
+				BackgroundColor3 = Theme.Background,
+				Parent = Holder,
+			})
+			Round(Track, 3)
+
+			local Fill = New("Frame", {
+				Size = UDim2.new((default - min) / math.max(max - min, 1), 0, 1, 0),
+				BackgroundColor3 = Theme.Accent,
+				Parent = Track,
+			})
+			Round(Fill, 3)
+
+			local dragging = false
+
+			local function updateFromInput(inputPos)
+				local relative = math.clamp((inputPos.X - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
+				local value = math.floor(min + (max - min) * relative)
+				Fill.Size = UDim2.new(relative, 0, 1, 0)
+				ValueLabel.Text = tostring(value)
+				local ok, err = pcall(callback, value)
+				if not ok then
+					warn("[RedzUI] Error en slider '" .. sldName .. "': " .. tostring(err))
+				end
+			end
+
+			Track.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = true
+					updateFromInput(input.Position)
+				end
+			end)
+			Track.InputEnded:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = false
+				end
+			end)
+			UserInputService.InputChanged:Connect(function(input)
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+					updateFromInput(input.Position)
+				end
+			end)
+
+			return Holder
+		end
+
+		function Tab:CreateDropdown(opts)
+			opts = opts or {}
+			local ddName = opts.Name or "Dropdown"
+			local options = opts.Options or {}
+			local default = opts.Default or options[1] or ""
+			local callback = opts.Callback or function() end
+			local open = false
+
+			local Holder = New("Frame", {
+				Size = UDim2.new(1, 0, 0, 34),
+				BackgroundColor3 = Theme.Element,
+				ClipsDescendants = true,
+				Parent = Page,
+			})
+			Round(Holder, 6)
+
+			New("TextLabel", {
+				Text = ddName,
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset(10, 0),
+				Size = UDim2.new(0.5, 0, 0, 34),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			local SelectedLabel = New("TextLabel", {
+				Text = tostring(default),
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextColor3 = Theme.SubText,
+				BackgroundTransparency = 1,
+				Position = UDim2.new(0.5, 0, 0, 0),
+				Size = UDim2.new(0.5, -14, 0, 34),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				Parent = Holder,
+			})
+
+			local Click = New("TextButton", {
+				Text = "",
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 34),
+				Parent = Holder,
+			})
+
+			local OptionList = New("Frame", {
+				Position = UDim2.fromOffset(0, 34),
+				Size = UDim2.new(1, 0, 0, #options * 26),
+				BackgroundTransparency = 1,
+				Parent = Holder,
+			})
+			New("UIListLayout", {
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = OptionList,
+			})
+
+			for _, optionValue in ipairs(options) do
+				local OptionBtn = New("TextButton", {
+					Text = tostring(optionValue),
+					Font = Enum.Font.Gotham,
+					TextSize = 12,
+					TextColor3 = Theme.SubText,
+					BackgroundTransparency = 1,
+					Size = UDim2.new(1, 0, 0, 26),
+					Parent = OptionList,
+				})
+				OptionBtn.MouseButton1Click:Connect(function()
+					SelectedLabel.Text = tostring(optionValue)
+					open = false
+					Tween(Holder, { Size = UDim2.new(1, 0, 0, 34) }, 0.15)
+					local ok, err = pcall(callback, optionValue)
+					if not ok then
+						warn("[RedzUI] Error en dropdown '" .. ddName .. "': " .. tostring(err))
+					end
+				end)
+			end
+
+			Click.MouseButton1Click:Connect(function()
+				open = not open
+				local targetSize = open and UDim2.new(1, 0, 0, 34 + (#options * 26)) or UDim2.new(1, 0, 0, 34)
+				Tween(Holder, { Size = targetSize }, 0.2)
+			end)
+
+			return Holder
+		end
+
+		function Tab:CreateInput(opts)
+			opts = opts or {}
+			local inpName = opts.Name or "Input"
+			local placeholder = opts.PlaceholderText or "..."
+			local callback = opts.Callback or function() end
+
+			local Holder = New("Frame", {
+				Size = UDim2.new(1, 0, 0, 34),
+				BackgroundColor3 = Theme.Element,
+				Parent = Page,
+			})
+			Round(Holder, 6)
+
+			New("TextLabel", {
+				Text = inpName,
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundTransparency = 1,
+				Position = UDim2.fromOffset(10, 0),
+				Size = UDim2.new(0.4, 0, 1, 0),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			local Box = New("TextBox", {
+				PlaceholderText = placeholder,
+				Text = "",
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextColor3 = Theme.Text,
+				PlaceholderColor3 = Theme.SubText,
+				BackgroundColor3 = Theme.Background,
+				ClearTextOnFocus = false,
+				Position = UDim2.new(0.42, 0, 0.15, 0),
+				Size = UDim2.new(0.55, -10, 0.7, 0),
+				Parent = Holder,
+			})
+			Round(Box, 4)
+			New("UIPadding", { PaddingLeft = UDim.new(0, 6), Parent = Box })
+
+			Box.FocusLost:Connect(function(enterPressed)
+				if enterPressed then
+					local ok, err = pcall(callback, Box.Text)
+					if not ok then
+						warn("[RedzUI] Error en input '" .. inpName .. "': " .. tostring(err))
+					end
+				end
+			end)
+
+			return Box
+		end
+
+		function Tab:CreateLabel(text)
+			return New("TextLabel", {
+				Text = text or "",
+				Font = Enum.Font.Gotham,
+				TextSize = 13,
+				TextColor3 = Theme.SubText,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 20),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Page,
+			})
+		end
+
+		function Tab:CreateParagraph(opts)
+			opts = opts or {}
+			local title = opts.Title or ""
+			local content = opts.Content or ""
+
+			local Holder = New("Frame", {
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundColor3 = Theme.Element,
+				Parent = Page,
+			})
+			Round(Holder, 6)
+			New("UIPadding", {
+				PaddingTop = UDim.new(0, 8),
+				PaddingBottom = UDim.new(0, 8),
+				PaddingLeft = UDim.new(0, 10),
+				PaddingRight = UDim.new(0, 10),
+				Parent = Holder,
+			})
+			New("UIListLayout", {
+				Padding = UDim.new(0, 4),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = Holder,
+			})
+
+			New("TextLabel", {
+				Text = title,
+				Font = Enum.Font.GothamBold,
+				TextSize = 13,
+				TextColor3 = Theme.Text,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 18),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			New("TextLabel", {
+				Text = content,
+				Font = Enum.Font.Gotham,
+				TextSize = 12,
+				TextColor3 = Theme.SubText,
+				BackgroundTransparency = 1,
+				Size = UDim2.new(1, 0, 0, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				TextWrapped = true,
+				TextXAlignment = Enum.TextXAlignment.Left,
+				Parent = Holder,
+			})
+
+			return Holder
+		end
+
+		return Tab
+	end
+
+	return Window
+end
+
+return RedzUI
