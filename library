@@ -155,8 +155,8 @@ local Theme = {
 	Accent          = Color3.fromRGB(214, 38, 51),
 	AccentDim       = Color3.fromRGB(150, 26, 36),
 	Text            = Color3.fromRGB(240, 240, 242),
-	TextDim         = Color3.fromRGB(210, 175, 178),
-	TextFaint       = Color3.fromRGB(170, 130, 133),
+	TextDim         = Color3.fromRGB(215, 215, 220),
+	TextFaint       = Color3.fromRGB(180, 180, 186),
 	Online          = Color3.fromRGB(63, 201, 141),
 	Stroke          = Color3.fromRGB(90, 30, 35),
 	Font            = Enum.Font.GothamMedium,
@@ -253,9 +253,13 @@ local function corner(radius)
 end
 
 local function stroke(color, thickness)
-	local usesDefault = (color == nil)
+	-- "Dinámico" = no se pasó color, O se pasó explícitamente el
+	-- Theme.Stroke actual (que es como está escrito el 99% del código:
+	-- stroke(Theme.Stroke, 1)). Solo se queda fijo si de verdad se pasa
+	-- un color DISTINTO al de Theme.Stroke (ej. un stroke a medida).
+	local wantsDynamic = (color == nil) or (color == Theme.Stroke)
 	local s = new("UIStroke", { Color = color or Theme.Stroke, Thickness = thickness or 1 })
-	if usesDefault then
+	if wantsDynamic then
 		onAccentChanged(function()
 			if s and s.Parent then
 				s.Color = Theme.Stroke
@@ -1132,7 +1136,7 @@ function SugarUI:CreateTab(config)
 		Parent = self.SidebarList,
 	}, tabChildren)
 
-	new("TextLabel", {
+	local iconCircle = new("TextLabel", {
 		Text = config.Icon or "•",
 		Font = Theme.FontBold,
 		TextSize = 13,
@@ -1143,6 +1147,9 @@ function SugarUI:CreateTab(config)
 		Position = UDim2.new(0, 9, 0.5, -13),
 		Parent = TabButton,
 	}, { corner(13) })
+	if not isFirst then
+		trackThemeColor(iconCircle, "BackgroundColor3", "PanelAlt")
+	end
 
 	local Indicator = new("Frame", {
 		Name = "Indicator",
