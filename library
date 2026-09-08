@@ -319,13 +319,33 @@ local function hoverThemeTint(guiObject, baseKey, hoverKey)
 	end)
 end
 
+-- FIX tamaño que "crece solo": la versión vieja calculaba el tamaño
+-- presionado/restaurado SUMANDO Y RESTANDO sobre guiObject.Size en el
+-- momento del evento. Eso tiene dos problemas:
+--   1) MouseLeave llamaba a restore() (agranda) SIEMPRE, incluso si el
+--      botón nunca se llegó a presionar — con solo pasar el mouse cerca
+--      y alejarte ya se disparaba MouseLeave, y el botón crecía.
+--   2) Como cada tween partía del tamaño ACTUAL (ya modificado por el
+--      tween anterior) en vez de un tamaño base fijo, el error se iba
+--      acumulando cada vez que pasabas el mouse cerca.
+-- Ahora baseSize/pressedSize se calculan UNA sola vez al crear el botón,
+-- y solo se restaura si realmente estaba presionado (isPressed).
 local function pressFeedback(guiObject)
+	local baseSize = guiObject.Size
+	local pressedSize = baseSize - UDim2.new(0, 4, 0, 2)
+	local isPressed = false
+
 	guiObject.MouseButton1Down:Connect(function()
-		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = guiObject.Size - UDim2.new(0, 4, 0, 2) }):Play()
+		isPressed = true
+		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = pressedSize }):Play()
 	end)
+
 	local function restore()
-		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = guiObject.Size + UDim2.new(0, 4, 0, 2) }):Play()
+		if not isPressed then return end
+		isPressed = false
+		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = baseSize }):Play()
 	end
+
 	guiObject.MouseButton1Up:Connect(restore)
 	guiObject.MouseLeave:Connect(restore)
 end
