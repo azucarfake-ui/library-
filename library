@@ -176,9 +176,45 @@ SugarUI.Theme = Theme
 -- Solo cambian Accent/AccentDim: el resto del tema (fondo, texto, etc.)
 -- se mantiene igual, así que el cambio es puramente de "color de marca".
 local ThemePalettes = {
-	Rojo = { Accent = Color3.fromRGB(214, 38, 51), AccentDim = Color3.fromRGB(150, 26, 36) },
-	Azul = { Accent = Color3.fromRGB(45, 130, 230), AccentDim = Color3.fromRGB(28, 88, 168) },
-	Negro = { Accent = Color3.fromRGB(80, 80, 86), AccentDim = Color3.fromRGB(40, 40, 44) },
+	Rojo = {
+		Background = Color3.fromRGB(46, 12, 16),
+		Sidebar = Color3.fromRGB(42, 11, 15),
+		Panel = Color3.fromRGB(58, 16, 20),
+		PanelAlt = Color3.fromRGB(70, 20, 25),
+		Accent = Color3.fromRGB(214, 38, 51),
+		AccentDim = Color3.fromRGB(150, 26, 36),
+		Text = Color3.fromRGB(240, 240, 242),
+		TextDim = Color3.fromRGB(210, 175, 178),
+		TextFaint = Color3.fromRGB(170, 130, 133),
+		Online = Color3.fromRGB(63, 201, 141),
+		Stroke = Color3.fromRGB(90, 30, 35),
+	},
+	Azul = {
+		Background = Color3.fromRGB(12, 22, 46),
+		Sidebar = Color3.fromRGB(11, 18, 42),
+		Panel = Color3.fromRGB(16, 28, 58),
+		PanelAlt = Color3.fromRGB(20, 35, 70),
+		Accent = Color3.fromRGB(45, 130, 230),
+		AccentDim = Color3.fromRGB(28, 88, 168),
+		Text = Color3.fromRGB(240, 240, 242),
+		TextDim = Color3.fromRGB(175, 190, 210),
+		TextFaint = Color3.fromRGB(130, 145, 170),
+		Online = Color3.fromRGB(63, 201, 141),
+		Stroke = Color3.fromRGB(30, 45, 90),
+	},
+	Negro = {
+		Background = Color3.fromRGB(20, 20, 20),
+		Sidebar = Color3.fromRGB(15, 15, 15),
+		Panel = Color3.fromRGB(25, 25, 25),
+		PanelAlt = Color3.fromRGB(35, 35, 35),
+		Accent = Color3.fromRGB(80, 80, 86),
+		AccentDim = Color3.fromRGB(40, 40, 44),
+		Text = Color3.fromRGB(240, 240, 242),
+		TextDim = Color3.fromRGB(180, 180, 180),
+		TextFaint = Color3.fromRGB(130, 130, 130),
+		Online = Color3.fromRGB(63, 201, 141),
+		Stroke = Color3.fromRGB(50, 50, 50),
+	},
 }
 SugarUI.ThemePalettes = ThemePalettes
 SugarUI.CurrentPalette = "Rojo"
@@ -200,8 +236,7 @@ end
 
 -- Atajo para el caso más común: una propiedad de color sólido (ej.
 -- BackgroundColor3 de un botón) que siempre debe pasar a ser Theme.Accent.
-local function trackAccentColor(inst, prop)
-	prop = prop or "BackgroundColor3"
+local function 	prop = prop or "BackgroundColor3"
 	onAccentChanged(function()
 		if inst and inst.Parent then
 			inst[prop] = Theme.Accent
@@ -215,8 +250,28 @@ end
 -- ============================================================
 local function new(class, props, children)
 	local inst = Instance.new(class)
+	local ignoreBinds = props and props.IgnoreThemeBinds
+	if props then props.IgnoreThemeBinds = nil end
+	
 	for prop, value in pairs(props or {}) do
 		inst[prop] = value
+		
+		if typeof(value) == "Color3" and not ignoreBinds then
+			local themeKey = nil
+			for k, v in pairs(ThemePalettes[SugarUI.CurrentPalette]) do
+				if v == value then
+					themeKey = k
+					break
+				end
+			end
+			if themeKey then
+				onAccentChanged(function()
+					if inst and inst.Parent then
+						inst[prop] = Theme[themeKey]
+					end
+				end)
+			end
+		end
 	end
 	for _, child in ipairs(children or {}) do
 		child.Parent = inst
@@ -241,65 +296,13 @@ local function pad(all, top, right, bottom, left)
 	})
 end
 
-local function hoverTint(guiObject, baseColor, hoverColor)
+local function hoverTint(guiObject, baseColorKey, hoverColorKey)
 	guiObject.MouseEnter:Connect(function()
-		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = hoverColor }):Play()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme[hoverColorKey] }):Play()
 	end)
 	guiObject.MouseLeave:Connect(function()
-		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = baseColor }):Play()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme[baseColorKey] }):Play()
 	end)
-end
-
-local function pressFeedback(guiObject)
-	guiObject.MouseButton1Down:Connect(function()
-		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = guiObject.Size - UDim2.new(0, 4, 0, 2) }):Play()
-	end)
-	local function restore()
-		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = guiObject.Size + UDim2.new(0, 4, 0, 2) }):Play()
-	end
-	guiObject.MouseButton1Up:Connect(restore)
-	guiObject.MouseLeave:Connect(restore)
-end
-
--- accentGradient() queda igual para quien ya la use, pero ahora se
--- registra a través de onAccentChanged para poder recolorearse al cambiar
--- de paleta (ver SugarUI:SetAccentColor más abajo).
-local function accentGradient(rotation)
-	local g = new("UIGradient", { Color = ColorSequence.new(Theme.Accent, Theme.AccentDim), Rotation = rotation or 90 })
-	onAccentChanged(function()
-		if g and g.Parent then
-			g.Color = ColorSequence.new(Theme.Accent, Theme.AccentDim)
-		end
-	end)
-	return g
-end
-
--- Cambia el color de acento de TODA la interfaz YA CONSTRUIDA (topbar,
--- burbuja, botones, sliders, dropdowns, estadísticas, la pestaña que esté
--- activa en este momento, los toggles que estén encendidos, el ícono de
--- perfil, la piruleta de la burbuja...) en un solo paso, y de cualquier
--- cosa que se cree después (los nuevos elementos leen
--- Theme.Accent/AccentDim al momento de crearse). paletteName: "Azul" |
--- "Rojo" | "Negro".
---
--- Recorre accentListeners con un pcall POR ENTRADA: si un elemento puntual
--- ya fue destruido o falla al repintarse, el resto de la interfaz se sigue
--- repintando igual — un elemento roto nunca deja el resto del panel a
--- medio pintar ni corta el cambio de color a la mitad.
-function SugarUI:SetAccentColor(paletteName)
-	local palette = ThemePalettes[paletteName]
-	if not palette then
-		warn("[SugarUI] Paleta de color desconocida: " .. tostring(paletteName))
-		return
-	end
-
-	SugarUI.CurrentPalette = paletteName
-	Theme.Accent = palette.Accent
-	Theme.AccentDim = palette.AccentDim
-
-	for _, listener in ipairs(accentListeners) do
-		pcall(listener)
-	end
 end
 
 -- ============================================================
@@ -492,8 +495,7 @@ function SugarUI:CreateWindow(config)
 			pad(0, 0, 10, 0, 10),
 			new("UISizeConstraint", { MaxSize = Vector2.new(150, 22) }),
 		})
-		trackAccentColor(Badge, "BackgroundColor3")
-	end
+			end
 
 	local ServerPill = new("Frame", {
 		Size = UDim2.new(0, 150, 0, 32),
@@ -524,8 +526,7 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(1, -80, 0.5, -16),
 		Parent = TopBar,
 	}, { corner(16), accentGradient() })
-	trackAccentColor(MinimizeBtn, "BackgroundColor3")
-
+	
 	local CloseBtn = new("TextButton", {
 		Text = "✕",
 		Font = Theme.FontBold,
@@ -537,10 +538,9 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(1, -40, 0.5, -16),
 		Parent = TopBar,
 	}, { corner(16), accentGradient() })
-	trackAccentColor(CloseBtn, "BackgroundColor3")
-
-	hoverTint(MinimizeBtn, Theme.Accent, Theme.AccentDim)
-	hoverTint(CloseBtn, Theme.Accent, Theme.AccentDim)
+	
+	hoverTint(MinimizeBtn, "Accent", "AccentDim")
+	hoverTint(CloseBtn, "Accent", "AccentDim")
 	pressFeedback(MinimizeBtn)
 	pressFeedback(CloseBtn)
 
@@ -624,8 +624,7 @@ function SugarUI:CreateWindow(config)
 		new("UIListLayout", { Padding = UDim.new(0, 20), SortOrder = Enum.SortOrder.LayoutOrder }),
 		pad(0, 20, 20, 20, 20),
 	})
-	trackAccentColor(ContentScroll, "ScrollBarImageColor3")
-
+	
 	-- ---------------- Burbuja flotante ----------------
 	local BUBBLE_H = 44
 
@@ -652,8 +651,7 @@ function SugarUI:CreateWindow(config)
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
-	trackAccentColor(Bubble, "BackgroundColor3")
-
+	
 	local function buildReticle(parent, size, color, layoutOrder)
 		local box = new("Frame", {
 			Size = UDim2.new(0, size, 0, size),
@@ -841,7 +839,9 @@ function SugarUI:CreateWindow(config)
 			SugarUI:SetAccentColor(paletteName)
 			ColorMenu.Visible = false
 		end)
-		hoverTint(swatch, ThemePalettes[paletteName].Accent, ThemePalettes[paletteName].AccentDim)
+		-- swatch hover handled manually
+		swatch.MouseEnter:Connect(function() TweenService:Create(swatch, TweenInfo.new(0.12), { BackgroundColor3 = ThemePalettes[paletteName].AccentDim }):Play() end)
+		swatch.MouseLeave:Connect(function() TweenService:Create(swatch, TweenInfo.new(0.12), { BackgroundColor3 = ThemePalettes[paletteName].Accent }):Play() end)
 		return swatch
 	end
 
@@ -858,7 +858,7 @@ function SugarUI:CreateWindow(config)
 	bubbleSlash(4)
 	buildReticle(Bubble, 20, Theme.Text, 5)
 
-	hoverTint(Bubble, Theme.Accent, Theme.AccentDim)
+	hoverTint(Bubble, "Accent", "AccentDim")
 
 	-- ============================================================
 	local Window = setmetatable({
@@ -1049,6 +1049,7 @@ function SugarUI:CreateTab(config)
 		Text = "",
 		AutoButtonColor = false,
 		BackgroundColor3 = isFirst and Theme.Accent or Theme.Sidebar,
+		IgnoreThemeBinds = true,
 		Size = UDim2.new(1, 0, 0, 44),
 		Parent = self.SidebarList,
 	}, tabChildren)
@@ -1087,7 +1088,7 @@ function SugarUI:CreateTab(config)
 	})
 
 	if not isFirst then
-		hoverTint(TabButton, Theme.Sidebar, Theme.PanelAlt)
+		hoverTint(TabButton, "Sidebar", "PanelAlt")
 	end
 
 	local Page = new("Frame", {
@@ -1185,8 +1186,7 @@ function SugarUI:CreateProfile(config)
 		Parent = Row,
 	}, { corner(17) })
 	-- El ícono de iniciales también sigue el color de acento actual.
-	trackAccentColor(InitialsIcon, "BackgroundColor3")
-
+	
 	new("TextLabel", {
 		Text = config.Name or "Usuario",
 		Font = Theme.FontSemibold,
@@ -1269,8 +1269,7 @@ function SugarUI:CreateStat(config)
 		Size = UDim2.new(1, 0, 0, 36),
 		Parent = Stat,
 	})
-	trackAccentColor(ValueLabel, "TextColor3")
-
+	
 	new("TextLabel", {
 		Text = config.Label or "",
 		Font = Theme.Font,
@@ -1372,7 +1371,7 @@ function SugarUI:CreateQuickAccess(config)
 	table.insert(self.Window._connections, ClickOverlay.MouseButton1Click:Connect(function()
 		QuickAccess:Set()
 	end))
-	hoverTint(Card, Theme.Panel, Theme.PanelAlt)
+	hoverTint(Card, "Panel", "PanelAlt")
 
 	registerFlag(config.Flag, QuickAccess, nil)
 	return QuickAccess
@@ -1397,9 +1396,8 @@ function SugarUI:CreateButton(config)
 		Parent = self.Page,
 	}, { corner(20), accentGradient() })
 	self._rowCount += 1
-	trackAccentColor(Btn, "BackgroundColor3")
-
-	hoverTint(Btn, Theme.Accent, Theme.AccentDim)
+	
+	hoverTint(Btn, "Accent", "AccentDim")
 	pressFeedback(Btn)
 
 	local Button = setmetatable({ Instance = Btn, Callback = callback, _threads = {} }, SugarUI)
@@ -1452,6 +1450,7 @@ function SugarUI:CreateToggle(config)
 		Size = UDim2.new(0, 42, 0, 22),
 		Position = UDim2.new(1, -42, 0.5, -11),
 		BackgroundColor3 = state and Theme.Accent or Theme.PanelAlt,
+		IgnoreThemeBinds = true,
 		Parent = Row,
 	}, { corner(11), stroke(Theme.Stroke, 1) })
 
@@ -1544,8 +1543,7 @@ function SugarUI:CreateSlider(config)
 		Position = UDim2.new(1, -50, 0, 0),
 		Parent = Row,
 	})
-	trackAccentColor(ValueLabel, "TextColor3")
-
+	
 	local Track = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 8),
 		Position = UDim2.new(0, 0, 0, 30),
@@ -1562,8 +1560,7 @@ function SugarUI:CreateSlider(config)
 		BackgroundColor3 = Theme.Accent,
 		Parent = Track,
 	}, { corner(4) })
-	trackAccentColor(Fill, "BackgroundColor3")
-
+	
 	local Knob = new("Frame", {
 		Size = UDim2.new(0, 14, 0, 14),
 		Position = UDim2.new(ratio(value), -7, 0.5, -7),
@@ -1676,8 +1673,7 @@ function SugarUI:CreateDropdown(config)
 		Size = UDim2.new(0.5, -20, 1, 0),
 		Parent = Row,
 	})
-	trackAccentColor(SelectedLabel, "TextColor3")
-
+	
 	local ClickOverlay = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Parent = Row })
 
 	local ListFrame = new("Frame", {
@@ -1716,7 +1712,7 @@ function SugarUI:CreateDropdown(config)
 			Size = UDim2.new(1, 0, 0, 28),
 			Parent = ListFrame,
 		}, { corner(8) })
-		hoverTint(OptionBtn, Theme.Panel, Theme.Sidebar)
+		hoverTint(OptionBtn, "Panel", "Sidebar")
 
 		table.insert(self.Window._connections, OptionBtn.MouseButton1Click:Connect(function()
 			Dropdown:Set(optionValue)
