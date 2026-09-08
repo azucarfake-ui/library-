@@ -33,14 +33,41 @@
 	   Cada Window guarda todas sus RBXScriptConnections en _connections y
 	   las desconecta en :Destroy(), evitando fugas de memoria.
 
-	6. HILOS RASTREADOS + :Stop()
+	6. HILOS ILIMITADOS, RASTREADOS + :Stop() — SIN CARRERAS
 	   Cada vez que un controlador (Toggle, Slider, Dropdown, Keybind,
-	   Button, QuickAccess) dispara su Callback, se guarda el hilo devuelto
-	   por task.spawn en controlador._thread. Cualquier script externo puede
-	   llamar a controlador:Stop() para cortar de una un loop que haya
-	   quedado corriendo (por ejemplo, si el comprador de la librería usa
-	   una lógica de combate propia que no revisa el flag por sí sola).
-	   Esto es genérico: no depende de qué juego ni de qué lógica sea.
+	   Button, QuickAccess) dispara su Callback, el hilo que crea
+	   task.spawn se agrega a un CONJUNTO propio del controlador
+	   (controlador._threads), en vez de guardarse en una sola variable.
+	   Podés disparar el mismo controlador varias veces seguidas, o varios
+	   controladores distintos a la vez, y CADA lógica corre en su propio
+	   hilo independiente sin pisar ni perder de vista a las anteriores.
+	   El propio hilo se registra a sí mismo como lo primero que hace al
+	   arrancar (con coroutine.running()), así que un callback instantáneo
+	   queda igual de bien contabilizado que uno que corre por horas.
+
+	7. COLOR DE ACENTO EN CALIENTE (Azul / Rojo / Negro) — REPINTADO TOTAL
+	   Tocando el engranaje de la burbuja flotante aparece un mini menú con
+	   3 colores. Elegir uno cambia el acento de TODA la interfaz al
+	   instante, sin fallos y sin dejar ningún elemento con el color viejo:
+
+	     · Barra superior (badge, botones minimizar/cerrar)
+	     · Burbuja flotante (fondo + degradado + la piruleta)
+	     · Pestaña que está ACTIVA en este momento (las demás no cambian,
+	       ya usan el color neutro del sidebar)
+	     · Botones, sliders (relleno + valor), dropdowns (opción elegida)
+	     · Estadísticas (el número grande)
+	     · El riel de cada Toggle que esté ENCENDIDO en este momento (si
+	       está apagado, sigue con el gris neutro — no se pinta de acento)
+	     · El ícono de iniciales del perfil
+
+	   Esto se logra con un registro GENÉRICO (accentListeners): cada
+	   elemento que depende del acento se anota a sí mismo con la función
+	   exacta que necesita para repintarse (algunos son un color sólido
+	   fijo, otros dependen de su propio estado como el Toggle o la
+	   pestaña activa). Al elegir un color, SetAccentColor recorre TODA la
+	   lista y llama a cada función dentro de su propio pcall: si un solo
+	   elemento fallara o ya no existiera, el resto de la interfaz se
+	   sigue repintando igual — nunca queda la UI "a medio pintar".
 
 	Uso básico:
 
@@ -75,6 +102,10 @@
 		-- Frenar el hilo del callback a la fuerza desde afuera, sin
 		-- importar qué lógica tenga adentro:
 		AutoM1:Stop()
+
+		-- Cambiar el color de acento desde código (lo mismo que hace el
+		-- menú del engranaje) — repinta TODA la UI de una:
+		SugarUI:SetAccentColor("Azul") -- "Azul" | "Rojo" | "Negro"
 ]]
 
 local TweenService = game:GetService("TweenService")
@@ -87,7 +118,7 @@ SugarUI.__index = SugarUI
 -- ============================================================
 -- 	PROPIEDADES DE LIBRERÍA
 -- ============================================================
-SugarUI.Version    = "1.2.0"
+SugarUI.Version    = "1.4.0"
 SugarUI.Windows    = {}
 SugarUI.Flags      = {}   -- Flags[flagName] = controlador (con :Set, :Get, etc.)
 SugarUI.FlagValues = {}   -- FlagValues[flagName] = valor actual "crudo"
@@ -114,7 +145,7 @@ local function getGuiParent()
 end
 
 -- ============================================================
--- 	PALETA / TEMA (idéntica a PanelUI: rojo oscuro)
+-- 	PALETA / TEMA (arranca en rojo, igual que antes)
 -- ============================================================
 local Theme = {
 	Background      = Color3.fromRGB(46, 12, 16),
@@ -137,6 +168,47 @@ local Theme = {
 }
 
 SugarUI.Theme = Theme
+
+-- ============================================================
+-- 	COLOR DE ACENTO EN CALIENTE
+-- ============================================================
+-- 3 paletas de acento para elegir desde el engranaje de la burbuja.
+-- Solo cambian Accent/AccentDim: el resto del tema (fondo, texto, etc.)
+-- se mantiene igual, así que el cambio es puramente de "color de marca".
+local ThemePalettes = {
+	Rojo = { Accent = Color3.fromRGB(214, 38, 51), AccentDim = Color3.fromRGB(150, 26, 36) },
+	Azul = { Accent = Color3.fromRGB(45, 130, 230), AccentDim = Color3.fromRGB(28, 88, 168) },
+	Negro = { Accent = Color3.fromRGB(80, 80, 86), AccentDim = Color3.fromRGB(40, 40, 44) },
+}
+SugarUI.ThemePalettes = ThemePalettes
+SugarUI.CurrentPalette = "Rojo"
+
+-- Registro GENÉRICO de todo lo que depende del color de acento: cada
+-- entrada es una función sin argumentos que sabe repintarse a sí misma
+-- leyendo el Theme.Accent/AccentDim ACTUAL en el momento en que se la
+-- llama. Esto es lo que garantiza que TODA la interfaz cambie de color de
+-- una sola vez y sin fallos: no importa si el elemento es un color sólido,
+-- un degradado, o algo que además depende de un estado propio (como el
+-- riel de un Toggle prendido/apagado, o qué pestaña está activa ahora
+-- mismo) — cada uno se registra con la lógica exacta que necesita.
+local accentListeners = {}
+
+local function onAccentChanged(fn)
+	table.insert(accentListeners, fn)
+	return fn
+end
+
+-- Atajo para el caso más común: una propiedad de color sólido (ej.
+-- BackgroundColor3 de un botón) que siempre debe pasar a ser Theme.Accent.
+local function trackAccentColor(inst, prop)
+	prop = prop or "BackgroundColor3"
+	onAccentChanged(function()
+		if inst and inst.Parent then
+			inst[prop] = Theme.Accent
+		end
+	end)
+	return inst
+end
 
 -- ============================================================
 -- 	HELPERS
@@ -178,6 +250,25 @@ local function hoverTint(guiObject, baseColor, hoverColor)
 	end)
 end
 
+-- FIX color de acento "que se queda pegado": hoverTint normal recibe
+-- baseColor/hoverColor como valores FIJOS, capturados en el instante en
+-- que se llama. Para botones cuyo color depende del acento (Minimizar,
+-- Cerrar, la Burbuja, los Botones normales) eso es un bug: al cambiar de
+-- paleta con SugarUI:SetAccentColor, trackAccentColor los repinta bien
+-- por un instante, pero el primer MouseEnter/MouseLeave los vuelve a
+-- pintar con el rojo (u otro color) que tenían guardado desde que se
+-- crearon, no con el actual. hoverAccentTint lee Theme.Accent/AccentDim
+-- DENTRO del propio evento, en el momento exacto en que se dispara, así
+-- siempre usa el color de acento que esté activo en ese momento.
+local function hoverAccentTint(guiObject)
+	guiObject.MouseEnter:Connect(function()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme.AccentDim }):Play()
+	end)
+	guiObject.MouseLeave:Connect(function()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme.Accent }):Play()
+	end)
+end
+
 local function pressFeedback(guiObject)
 	guiObject.MouseButton1Down:Connect(function()
 		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = guiObject.Size - UDim2.new(0, 4, 0, 2) }):Play()
@@ -189,60 +280,94 @@ local function pressFeedback(guiObject)
 	guiObject.MouseLeave:Connect(restore)
 end
 
+-- accentGradient() queda igual para quien ya la use, pero ahora se
+-- registra a través de onAccentChanged para poder recolorearse al cambiar
+-- de paleta (ver SugarUI:SetAccentColor más abajo).
 local function accentGradient(rotation)
-	return new("UIGradient", { Color = ColorSequence.new(Theme.Accent, Theme.AccentDim), Rotation = rotation or 90 })
+	local g = new("UIGradient", { Color = ColorSequence.new(Theme.Accent, Theme.AccentDim), Rotation = rotation or 90 })
+	onAccentChanged(function()
+		if g and g.Parent then
+			g.Color = ColorSequence.new(Theme.Accent, Theme.AccentDim)
+		end
+	end)
+	return g
+end
+
+-- Cambia el color de acento de TODA la interfaz YA CONSTRUIDA (topbar,
+-- burbuja, botones, sliders, dropdowns, estadísticas, la pestaña que esté
+-- activa en este momento, los toggles que estén encendidos, el ícono de
+-- perfil, la piruleta de la burbuja...) en un solo paso, y de cualquier
+-- cosa que se cree después (los nuevos elementos leen
+-- Theme.Accent/AccentDim al momento de crearse). paletteName: "Azul" |
+-- "Rojo" | "Negro".
+--
+-- Recorre accentListeners con un pcall POR ENTRADA: si un elemento puntual
+-- ya fue destruido o falla al repintarse, el resto de la interfaz se sigue
+-- repintando igual — un elemento roto nunca deja el resto del panel a
+-- medio pintar ni corta el cambio de color a la mitad.
+function SugarUI:SetAccentColor(paletteName)
+	local palette = ThemePalettes[paletteName]
+	if not palette then
+		warn("[SugarUI] Paleta de color desconocida: " .. tostring(paletteName))
+		return
+	end
+
+	SugarUI.CurrentPalette = paletteName
+	Theme.Accent = palette.Accent
+	Theme.AccentDim = palette.AccentDim
+
+	for _, listener in ipairs(accentListeners) do
+		pcall(listener)
+	end
 end
 
 -- ============================================================
--- 	NÚCLEO: INVOCACIÓN ASÍNCRONA SEGURA
+-- 	NÚCLEO: INVOCACIÓN ASÍNCRONA SEGURA (CONCURRENCIA ILIMITADA)
 -- ============================================================
--- Cada callback conectado por el usuario corre en su PROPIO hilo
--- (task.spawn) y está protegido con pcall. Un `while true do` dentro de un
--- callback jamás congela la UI ni el juego. Devuelve el hilo creado para
--- que el controlador que lo llamó pueda guardarlo y ofrecer :Stop().
-local function safeCall(fn, ...)
+local function safeCall(controller, fn, ...)
 	fn = fn or function() end
-	if typeof(fn) ~= "function" then return nil end
+	if typeof(fn) ~= "function" then
+		return nil
+	end
 
 	local args = table.pack(...)
+
+	if controller then
+		controller._threads = controller._threads or {}
+	end
+
 	local thread = task.spawn(function()
+		local self = coroutine.running()
+		if controller then
+			controller._threads[self] = true
+		end
+
 		local ok, err = pcall(function()
 			fn(table.unpack(args, 1, args.n))
 		end)
 		if not ok then
 			warn("[SugarUI] Error en callback conectado por el usuario: " .. tostring(err))
 		end
+
+		if controller and controller._threads then
+			controller._threads[self] = nil
+		end
 	end)
+
 	return thread
 end
 
--- Corta a la fuerza el hilo activo de un controlador, sin importar qué
--- lógica tenga adentro (loop propio, espera de otro servicio, etc.).
--- Es genérico: no depende del juego ni de la lógica conectada.
 local function stopThread(controller)
-	if controller._thread then
-		pcall(task.cancel, controller._thread)
-		controller._thread = nil
+	if not controller._threads then return end
+	for thread in pairs(controller._threads) do
+		pcall(task.cancel, thread)
 	end
+	table.clear(controller._threads)
 end
 
 -- ============================================================
--- 	ADAPTADOR DE LÓGICA EXTERNA — para conectar CUALQUIER lógica
--- 	(de cualquier juego) sin tener que escribir un Callback
--- 	envoltorio a mano cada vez.
+-- 	ADAPTADOR DE LÓGICA EXTERNA
 -- ============================================================
--- Cada componente (Toggle, Slider, Button, etc.) sigue aceptando
--- `Callback = function(valor) ... end` exactamente como antes.
---
--- Pero ahora TAMBIÉN podés pasar `Logic = TuTabla` directamente, y la
--- librería sola busca cómo dispararla, probando en este orden:
---   1) Si el valor es true/false: TuTabla:Enable() / TuTabla:Disable()
---   2) TuTabla:Toggle(valor)
---   3) TuTabla:Set(valor)
---   4) TuTabla:Run(valor)
---   5) Si Logic es directamente una función, se llama tal cual.
--- No hace falta que tu módulo sepa nada de SugarUI: solo necesita tener
--- UNO de esos métodos, con el nombre que ya uses habitualmente.
 local function resolveCallback(config)
 	if typeof(config.Callback) == "function" then
 		return config.Callback
@@ -366,18 +491,27 @@ function SugarUI:CreateWindow(config)
 	})
 
 	if config.Badge then
-		new("TextLabel", {
+		local Badge = new("TextLabel", {
 			Text = config.Badge,
 			Font = Theme.FontBold,
 			TextSize = 11,
 			TextColor3 = Theme.Text,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			TextTruncate = Enum.TextTruncate.AtEnd,
 			BackgroundColor3 = Theme.Accent,
 			ClipsDescendants = true,
 			AutomaticSize = Enum.AutomaticSize.X,
 			Size = UDim2.new(0, 0, 0, 22),
 			LayoutOrder = 2,
 			Parent = TopBarLeft,
-		}, { corner(11), accentGradient(), pad(0, 0, 10, 0, 10) })
+		}, {
+			corner(11),
+			accentGradient(),
+			pad(0, 0, 10, 0, 10),
+			new("UISizeConstraint", { MaxSize = Vector2.new(150, 22) }),
+		})
+		trackAccentColor(Badge, "BackgroundColor3")
 	end
 
 	local ServerPill = new("Frame", {
@@ -409,6 +543,7 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(1, -80, 0.5, -16),
 		Parent = TopBar,
 	}, { corner(16), accentGradient() })
+	trackAccentColor(MinimizeBtn, "BackgroundColor3")
 
 	local CloseBtn = new("TextButton", {
 		Text = "✕",
@@ -421,9 +556,10 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(1, -40, 0.5, -16),
 		Parent = TopBar,
 	}, { corner(16), accentGradient() })
+	trackAccentColor(CloseBtn, "BackgroundColor3")
 
-	hoverTint(MinimizeBtn, Theme.Accent, Theme.AccentDim)
-	hoverTint(CloseBtn, Theme.Accent, Theme.AccentDim)
+	hoverAccentTint(MinimizeBtn)
+	hoverAccentTint(CloseBtn)
 	pressFeedback(MinimizeBtn)
 	pressFeedback(CloseBtn)
 
@@ -507,12 +643,9 @@ function SugarUI:CreateWindow(config)
 		new("UIListLayout", { Padding = UDim.new(0, 20), SortOrder = Enum.SortOrder.LayoutOrder }),
 		pad(0, 20, 20, 20, 20),
 	})
+	trackAccentColor(ContentScroll, "ScrollBarImageColor3")
 
 	-- ---------------- Burbuja flotante ----------------
-	-- Píldora ancha (rectángulo con las puntas totalmente redondeadas) con,
-	-- en orden: "AZC" / ícono de paleta (dulce) / símbolo de mira (4
-	-- esquinas, como el ícono de referencia). Se arma sola con
-	-- AutomaticSize según el contenido, sin usar ninguna imagen externa.
 	local BUBBLE_H = 44
 
 	local Bubble = new("TextButton", {
@@ -538,9 +671,8 @@ function SugarUI:CreateWindow(config)
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	trackAccentColor(Bubble, "BackgroundColor3")
 
-	-- Símbolo de mira/foco: 4 esquinas sueltas formando un cuadrado,
-	-- igual de espíritu al ícono de referencia que mandaste.
 	local function buildReticle(parent, size, color, layoutOrder)
 		local box = new("Frame", {
 			Size = UDim2.new(0, size, 0, size),
@@ -568,8 +700,13 @@ function SugarUI:CreateWindow(config)
 		return box
 	end
 
-	-- Paleta (dulce) — cabeza con gradiente ROSA con tonos rojos (antes
-	-- era blanco/rojo, ahora predominan los rosas) + brillo + palito.
+	-- Paleta (dulce) — la cabeza usa un degradado que MEZCLA el acento
+	-- actual con tonos rosas fijos. El degradado se guarda en una
+	-- variable (LollipopGradient) y se re-registra en accentListeners
+	-- para poder reconstruirse con el Accent/AccentDim nuevo cada vez que
+	-- se cambia de paleta — antes esto NO pasaba (se armaba una sola vez
+	-- con `new("UIGradient", ...)` directo) y por eso la piruleta se
+	-- quedaba con el rojo viejo aunque el resto de la UI ya fuera azul.
 	local function buildLollipop(parent, size, layoutOrder)
 		local box = new("Frame", {
 			Size = UDim2.new(0, size, 0, size + 12),
@@ -585,6 +722,21 @@ function SugarUI:CreateWindow(config)
 			Parent = box,
 		}, { corner(1) })
 
+		local function buildLollipopSequence()
+			return ColorSequence.new({
+				ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 182, 210)),
+				ColorSequenceKeypoint.new(0.25, Theme.Accent),
+				ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 121, 170)),
+				ColorSequenceKeypoint.new(0.75, Theme.AccentDim),
+				ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 182, 210)),
+			})
+		end
+
+		local LollipopGradient = new("UIGradient", {
+			Color = buildLollipopSequence(),
+			Rotation = 35,
+		})
+
 		local Head = new("Frame", {
 			Size = UDim2.new(0, size, 0, size),
 			BackgroundColor3 = Color3.fromRGB(255, 133, 178),
@@ -593,17 +745,14 @@ function SugarUI:CreateWindow(config)
 		}, {
 			corner(size / 2),
 			stroke(Theme.Stroke, 1),
-			new("UIGradient", {
-				Color = ColorSequence.new({
-					ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 182, 210)),
-					ColorSequenceKeypoint.new(0.25, Theme.Accent),
-					ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 121, 170)),
-					ColorSequenceKeypoint.new(0.75, Theme.AccentDim),
-					ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 182, 210)),
-				}),
-				Rotation = 35,
-			}),
+			LollipopGradient,
 		})
+
+		onAccentChanged(function()
+			if LollipopGradient and LollipopGradient.Parent then
+				LollipopGradient.Color = buildLollipopSequence()
+			end
+		end)
 
 		new("Frame", {
 			Size = UDim2.new(0, size * 0.28, 0, size * 0.16),
@@ -631,23 +780,104 @@ function SugarUI:CreateWindow(config)
 		})
 	end
 
-	new("TextLabel", {
-		Text = "AZC",
-		Font = Theme.FontBold,
-		TextSize = 15,
-		TextColor3 = Theme.Text,
+	local GearButton = new("TextButton", {
+		Name = "GearButton",
+		Text = "",
+		AutoButtonColor = false,
 		BackgroundTransparency = 1,
-		AutomaticSize = Enum.AutomaticSize.X,
-		Size = UDim2.new(0, 0, 1, 0),
+		Size = UDim2.new(0, 20, 0, 20),
 		LayoutOrder = 1,
+		ZIndex = 3,
 		Parent = Bubble,
 	})
+
+	do
+		local ring = new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			Size = UDim2.new(0, 11, 0, 11),
+			BackgroundTransparency = 1,
+			ZIndex = 3,
+			Parent = GearButton,
+		}, { stroke(Theme.Text, 2) })
+		corner(6).Parent = ring
+
+		for i = 1, 6 do
+			new("Frame", {
+				Name = "Tooth",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				Size = UDim2.new(0, 2.4, 0, 16),
+				Rotation = (i - 1) * 60,
+				BackgroundColor3 = Theme.Text,
+				BorderSizePixel = 0,
+				ZIndex = 3,
+				Parent = GearButton,
+			})
+		end
+	end
+
+	local ColorMenu = new("Frame", {
+		Name = "ColorMenu",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Size = UDim2.new(0, 140, 0, 48),
+		Position = UDim2.new(0.5, 0, 1, 10),
+		BackgroundColor3 = Theme.PanelAlt,
+		Visible = false,
+		ZIndex = 10,
+		Parent = Bubble,
+	}, {
+		corner(14),
+		stroke(Theme.Stroke, 1),
+		pad(8),
+		new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			Padding = UDim.new(0, 10),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
+	})
+
+	-- Las muestras de color del menú (colorSwatch) usan a propósito el
+	-- color FIJO de cada paleta (ThemePalettes[paletteName].Accent) y NO
+	-- se registran en accentListeners: tienen que seguir mostrando
+	-- "así se ve el azul" / "así se ve el rojo" sin importar cuál esté
+	-- activo en este momento, para que el menú siga sirviendo de selector.
+	local function colorSwatch(paletteName, layoutOrder)
+		local swatch = new("TextButton", {
+			Name = paletteName,
+			Text = "",
+			AutoButtonColor = false,
+			BackgroundColor3 = ThemePalettes[paletteName].Accent,
+			Size = UDim2.new(0, 28, 0, 28),
+			ZIndex = 11,
+			LayoutOrder = layoutOrder,
+			Parent = ColorMenu,
+		}, { corner(14), stroke(Theme.Text, 1) })
+
+		swatch.MouseButton1Click:Connect(function()
+			SugarUI:SetAccentColor(paletteName)
+			ColorMenu.Visible = false
+		end)
+		hoverTint(swatch, ThemePalettes[paletteName].Accent, ThemePalettes[paletteName].AccentDim)
+		return swatch
+	end
+
+	colorSwatch("Azul", 1)
+	colorSwatch("Rojo", 2)
+	colorSwatch("Negro", 3)
+
+	GearButton.MouseButton1Click:Connect(function()
+		ColorMenu.Visible = not ColorMenu.Visible
+	end)
+
 	bubbleSlash(2)
 	buildLollipop(Bubble, 18, 3)
 	bubbleSlash(4)
 	buildReticle(Bubble, 20, Theme.Text, 5)
 
-	hoverTint(Bubble, Theme.Accent, Theme.AccentDim)
+	hoverAccentTint(Bubble)
 
 	-- ============================================================
 	local Window = setmetatable({
@@ -673,7 +903,6 @@ function SugarUI:CreateWindow(config)
 		Window:Show()
 	end))
 
-	-- Arrastrar la burbuja
 	do
 		local dragging = false
 		local dragStart, startPos
@@ -704,14 +933,13 @@ function SugarUI:CreateWindow(config)
 
 	track(MinimizeBtn.MouseButton1Click:Connect(function()
 		Window:Hide()
-		safeCall(Window.OnMinimize)
+		safeCall(nil, Window.OnMinimize)
 	end))
 	track(CloseBtn.MouseButton1Click:Connect(function()
 		Window:Hide()
-		safeCall(Window.OnClose)
+		safeCall(nil, Window.OnClose)
 	end))
 
-	-- ---------------- Arrastrar la ventana ----------------
 	do
 		local dragging = false
 		local dragStart, startPos
@@ -742,7 +970,6 @@ function SugarUI:CreateWindow(config)
 		end))
 	end
 
-	-- ---------------- Atajo de teclado (por defecto K) ----------------
 	local toggleKey = config.ToggleKey or Enum.KeyCode.K
 	track(UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
@@ -772,8 +999,6 @@ function SugarUI:Toggle()
 	if self.Root.Visible then self:Hide() else self:Show() end
 end
 
--- Desconecta TODAS las conexiones guardadas (arrastre, atajos, clicks de
--- tabs/elementos, etc.) y destruye la instancia. Evita fugas de memoria.
 function SugarUI:Destroy()
 	if self._connections then
 		for _, conn in ipairs(self._connections) do
@@ -929,6 +1154,17 @@ function SugarUI:CreateTab(config)
 		_rowCount = 2,
 	}, SugarUI)
 
+	-- Repinta el fondo de ESTA pestaña con el acento nuevo SOLO si es la
+	-- pestaña activa en este momento (Page.Visible == true). Las pestañas
+	-- apagadas siguen con Theme.Sidebar (color neutro) y no se tocan.
+	-- Esto es lo que faltaba para que la pestaña activa no se quedara con
+	-- el color viejo al cambiar de paleta mientras el panel está abierto.
+	onAccentChanged(function()
+		if TabButton.Parent and Page.Visible then
+			TabButton.BackgroundColor3 = Theme.Accent
+		end
+	end)
+
 	table.insert(self._connections, TabButton.MouseButton1Click:Connect(function()
 		for _, t in ipairs(self._tabs) do
 			t.Page.Visible = false
@@ -938,7 +1174,7 @@ function SugarUI:CreateTab(config)
 		Page.Visible = true
 		TabButton.BackgroundColor3 = Theme.Accent
 		Indicator.BackgroundTransparency = 0.15
-		safeCall(Tab.OnSelect)
+		safeCall(nil, Tab.OnSelect)
 	end))
 
 	table.insert(self._tabs, Tab)
@@ -957,7 +1193,7 @@ function SugarUI:CreateProfile(config)
 		child:Destroy()
 	end
 
-	new("TextLabel", {
+	local InitialsIcon = new("TextLabel", {
 		Text = config.Initials or "?",
 		Font = Theme.FontBold,
 		TextSize = 13,
@@ -967,6 +1203,8 @@ function SugarUI:CreateProfile(config)
 		Position = UDim2.new(0, 0, 0.5, -17),
 		Parent = Row,
 	}, { corner(17) })
+	-- El ícono de iniciales también sigue el color de acento actual.
+	trackAccentColor(InitialsIcon, "BackgroundColor3")
 
 	new("TextLabel", {
 		Text = config.Name or "Usuario",
@@ -1050,6 +1288,7 @@ function SugarUI:CreateStat(config)
 		Size = UDim2.new(1, 0, 0, 36),
 		Parent = Stat,
 	})
+	trackAccentColor(ValueLabel, "TextColor3")
 
 	new("TextLabel", {
 		Text = config.Label or "",
@@ -1070,8 +1309,6 @@ function SugarUI:CreateStat(config)
 
 	local StatController = setmetatable({ ValueLabel = ValueLabel, Value = config.Value or "0" }, SugarUI)
 
-	-- :Set(valor) permite refrescar la estadística en vivo desde tu propio
-	-- script (ej: actualizar "jugadores en línea" cada pocos segundos).
 	function StatController:Set(newValue)
 		self.Value = newValue
 		ValueLabel.Text = tostring(newValue)
@@ -1097,7 +1334,7 @@ function SugarUI:CreateSectionLabel(text)
 end
 
 -- ============================================================
--- 	ACCESO RÁPIDO — ejecuta cualquier lógica externa de forma segura
+-- 	ACCESO RÁPIDO
 -- ============================================================
 function SugarUI:CreateQuickAccess(config)
 	config = config or {}
@@ -1141,16 +1378,12 @@ function SugarUI:CreateQuickAccess(config)
 		Parent = Card,
 	})
 
-	local QuickAccess = setmetatable({ Card = Card, Callback = callback, _thread = nil }, SugarUI)
+	local QuickAccess = setmetatable({ Card = Card, Callback = callback, _threads = {} }, SugarUI)
 
-	-- :Set() dispara la lógica conectada como si se hubiera hecho click.
-	-- Cualquier lógica del comprador (de cualquier juego) corre en su
-	-- propio hilo, protegida con pcall.
 	function QuickAccess:Set(...)
-		self._thread = safeCall(self.Callback, ...)
+		safeCall(self, self.Callback, ...)
 	end
 
-	-- Corta el hilo activo del callback, sin importar qué lógica tenga.
 	function QuickAccess:Stop()
 		stopThread(self)
 	end
@@ -1183,14 +1416,15 @@ function SugarUI:CreateButton(config)
 		Parent = self.Page,
 	}, { corner(20), accentGradient() })
 	self._rowCount += 1
+	trackAccentColor(Btn, "BackgroundColor3")
 
-	hoverTint(Btn, Theme.Accent, Theme.AccentDim)
+	hoverAccentTint(Btn)
 	pressFeedback(Btn)
 
-	local Button = setmetatable({ Instance = Btn, Callback = callback, _thread = nil }, SugarUI)
+	local Button = setmetatable({ Instance = Btn, Callback = callback, _threads = {} }, SugarUI)
 
 	function Button:Set(...)
-		self._thread = safeCall(self.Callback, ...)
+		safeCall(self, self.Callback, ...)
 	end
 
 	function Button:Stop()
@@ -1249,26 +1483,33 @@ function SugarUI:CreateToggle(config)
 
 	local ClickOverlay = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.new(1,0,1,0), Parent = Row })
 
-	local Toggle = setmetatable({ Track = Track, Knob = Knob, Value = state, Callback = callback, _thread = nil }, SugarUI)
+	local Toggle = setmetatable({ Track = Track, Knob = Knob, Value = state, Callback = callback, _threads = {} }, SugarUI)
 
 	local function paint(newState)
 		TweenService:Create(Track, TweenInfo.new(0.15), { BackgroundColor3 = newState and Theme.Accent or Theme.PanelAlt }):Play()
 		TweenService:Create(Knob, TweenInfo.new(0.15), { Position = newState and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8) }):Play()
 	end
 
-	-- :Set(bool) actualiza la UI Y dispara la lógica externa conectada.
-	-- Se puede llamar desde CUALQUIER script (ej: un bucle Auto-M1 que se
-	-- desactiva solo tras cierta condición), sin importar el juego.
+	-- Si este Toggle está ENCENDIDO en este momento, su riel se repinta
+	-- con el acento nuevo. Si está apagado, se queda con el gris neutro
+	-- (Theme.PanelAlt) — esto es lo que faltaba para que un Auto-M1
+	-- prendido no se quedara con el color viejo al cambiar de paleta.
+	onAccentChanged(function()
+		if Track.Parent then
+			TweenService:Create(Track, TweenInfo.new(0.15), {
+				BackgroundColor3 = Toggle.Value and Theme.Accent or Theme.PanelAlt,
+			}):Play()
+		end
+	end)
+
 	function Toggle:Set(newState)
 		newState = not not newState
 		self.Value = newState
 		paint(newState)
 		SugarUI.FlagValues[config.Flag] = newState
-		self._thread = safeCall(self.Callback, newState)
+		safeCall(self, self.Callback, newState)
 	end
 
-	-- Corta a la fuerza el hilo del callback activo (ej: si el loop de
-	-- lógica externa no revisa el flag por sí solo).
 	function Toggle:Stop()
 		stopThread(self)
 	end
@@ -1322,6 +1563,7 @@ function SugarUI:CreateSlider(config)
 		Position = UDim2.new(1, -50, 0, 0),
 		Parent = Row,
 	})
+	trackAccentColor(ValueLabel, "TextColor3")
 
 	local Track = new("Frame", {
 		Size = UDim2.new(1, 0, 0, 8),
@@ -1339,6 +1581,7 @@ function SugarUI:CreateSlider(config)
 		BackgroundColor3 = Theme.Accent,
 		Parent = Track,
 	}, { corner(4) })
+	trackAccentColor(Fill, "BackgroundColor3")
 
 	local Knob = new("Frame", {
 		Size = UDim2.new(0, 14, 0, 14),
@@ -1347,7 +1590,7 @@ function SugarUI:CreateSlider(config)
 		Parent = Track,
 	}, { corner(7) })
 
-	local Slider = setmetatable({ Track = Track, Fill = Fill, Knob = Knob, Value = value, Callback = callback, _thread = nil }, SugarUI)
+	local Slider = setmetatable({ Track = Track, Fill = Fill, Knob = Knob, Value = value, Callback = callback, _threads = {} }, SugarUI)
 
 	local function paint(v)
 		local r = ratio(v)
@@ -1356,31 +1599,18 @@ function SugarUI:CreateSlider(config)
 		ValueLabel.Text = tostring(v)
 	end
 
-	-- :Set(number) mueve el slider Y dispara la lógica externa — útil para
-	-- ajustar, por ejemplo, la velocidad de un Auto-M1 desde otro script.
 	function Slider:Set(newValue)
 		newValue = math.clamp(math.floor(newValue + 0.5), min, max)
 		self.Value = newValue
 		paint(newValue)
 		SugarUI.FlagValues[config.Flag] = newValue
-		self._thread = safeCall(self.Callback, newValue)
+		safeCall(self, self.Callback, newValue)
 	end
 
 	function Slider:Stop()
 		stopThread(self)
 	end
 
-	-- ---- FIX: arrastre aislado por slider (doble seguro) ----
-	-- Seguro 1: antes, el fin del arrastre dependía de input.Changed (poco
-	-- fiable: si no disparaba, "dragging" quedaba pegado en true). Como el
-	-- listener de movimiento es GLOBAL (UserInputService.InputChanged) y
-	-- lo comparten todos los sliders, un "dragging" pegado en un slider
-	-- hacía que se moviera solo con el mouse arrastrando OTRO slider.
-	-- Ahora "dragging" se resetea con UserInputService.InputEnded, que
-	-- siempre dispara.
-	-- Seguro 2: aunque el flag fallara igual, cada slider chequea que el
-	-- mouse esté realmente sobre SU PROPIO Track (en Y, no solo en X)
-	-- antes de moverse, así nunca reacciona al arrastre de otro slider.
 	local dragging = false
 	local function setFromX(xPos)
 		local relative = math.clamp((xPos - Track.AbsolutePosition.X) / Track.AbsoluteSize.X, 0, 1)
@@ -1391,7 +1621,7 @@ function SugarUI:CreateSlider(config)
 		local ok, mousePos = pcall(function()
 			return UserInputService:GetMouseLocation()
 		end)
-		if not ok then return true end -- si no se puede leer, no bloqueamos el drag
+		if not ok then return true end
 		local tPos, tSize = Track.AbsolutePosition, Track.AbsoluteSize
 		return mousePos.Y >= tPos.Y - 20 and mousePos.Y <= tPos.Y + tSize.Y + 20
 	end
@@ -1461,34 +1691,40 @@ function SugarUI:CreateDropdown(config)
 		TextSize = 14,
 		TextColor3 = Theme.Accent,
 		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		BackgroundTransparency = 1,
+		Position = UDim2.new(0.5, 20, 0, 0),
 		Size = UDim2.new(0.5, -20, 1, 0),
 		Parent = Row,
 	})
+	trackAccentColor(SelectedLabel, "TextColor3")
 
 	local ClickOverlay = new("TextButton", { Text = "", BackgroundTransparency = 1, Size = UDim2.new(1, 0, 1, 0), Parent = Row })
 
-	local ListFrame = new("Frame", {
+	local ListFrame = new("ScrollingFrame", {
 		Size = UDim2.new(1, 0, 0, math.min(#options, 5) * 32 + 8),
 		Position = UDim2.new(0, 0, 1, 6),
 		BackgroundColor3 = Theme.PanelAlt,
 		Visible = false,
 		ZIndex = 5,
+		ScrollBarThickness = 4,
+		ScrollBarImageColor3 = Theme.Accent,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		Parent = Row,
 	}, {
 		corner(12), stroke(Theme.Stroke, 1), pad(4),
 		new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
+	trackAccentColor(ListFrame, "ScrollBarImageColor3")
 
-	local Dropdown = setmetatable({ Value = selected, Callback = callback, Options = options, _thread = nil }, SugarUI)
+	local Dropdown = setmetatable({ Value = selected, Callback = callback, Options = options, _threads = {} }, SugarUI)
 
-	-- :Set(opción) cambia la selección Y dispara el callback — útil para
-	-- sincronizar el dropdown con un estado externo (ej: modo de combate).
 	function Dropdown:Set(option)
 		self.Value = option
 		SelectedLabel.Text = tostring(option)
 		SugarUI.FlagValues[config.Flag] = option
-		self._thread = safeCall(self.Callback, option)
+		safeCall(self, self.Callback, option)
 	end
 
 	function Dropdown:Stop()
@@ -1501,11 +1737,13 @@ function SugarUI:CreateDropdown(config)
 			Font = Theme.Font,
 			TextSize = 13,
 			TextColor3 = Theme.Text,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			ClipsDescendants = true,
 			BackgroundColor3 = Theme.Panel,
 			AutoButtonColor = false,
 			Size = UDim2.new(1, 0, 0, 28),
 			Parent = ListFrame,
-		}, { corner(8) })
+		}, { corner(8), pad(0, 0, 8, 0, 8) })
 		hoverTint(OptionBtn, Theme.Panel, Theme.Sidebar)
 
 		table.insert(self.Window._connections, OptionBtn.MouseButton1Click:Connect(function()
@@ -1563,10 +1801,8 @@ function SugarUI:CreateKeybind(config)
 		Parent = Row,
 	}, { corner(8), stroke(Theme.Stroke, 1) })
 
-	local Keybind = setmetatable({ Value = currentKey, Callback = callback, _thread = nil }, SugarUI)
+	local Keybind = setmetatable({ Value = currentKey, Callback = callback, _threads = {} }, SugarUI)
 
-	-- :Set(KeyCode) reasigna la tecla programáticamente (ej: cargar un
-	-- perfil de teclas guardado).
 	function Keybind:Set(keyCode)
 		self.Value = keyCode
 		KeyButton.Text = keyCode.Name
@@ -1589,10 +1825,7 @@ function SugarUI:CreateKeybind(config)
 			return
 		end
 		if not listening and not gameProcessed and input.KeyCode == Keybind.Value then
-			-- La tecla asignada se presionó: dispara la lógica externa
-			-- (ej: activar/desactivar un Auto-M1) sin congelar nada, sin
-			-- importar de qué juego sea esa lógica.
-			Keybind._thread = safeCall(Keybind.Callback, Keybind.Value)
+			safeCall(Keybind, Keybind.Callback, Keybind.Value)
 		end
 	end))
 
