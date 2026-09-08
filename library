@@ -780,7 +780,8 @@ function SugarUI:CreateWindow(config)
 
 		new("Frame", {
 			Size = UDim2.new(0, 2, 0, 12),
-			Position = UDim2.new(0.5, -1, 0, size - 4),
+			Position = UDim2.new(0.5, 4, 0, size - 6),
+			Rotation = -16,
 			BackgroundColor3 = Color3.fromRGB(232, 222, 208),
 			Parent = box,
 		}, { corner(1) })
@@ -872,7 +873,7 @@ function SugarUI:CreateWindow(config)
 	})
 
 	do
-		local ringSize = 12
+		local ringSize = 11
 		new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
@@ -891,7 +892,7 @@ function SugarUI:CreateWindow(config)
 			Parent = GearButton,
 		}, { corner(2) })
 
-		local teethCount, toothW, toothH, radius = 8, 2.2, 5, 7.5
+		local teethCount, toothW, toothH, radius = 6, 3.4, 4.2, 6.8
 		for i = 0, teethCount - 1 do
 			local angle = i * (360 / teethCount)
 			local rad = math.rad(angle)
