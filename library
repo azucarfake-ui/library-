@@ -176,9 +176,24 @@ SugarUI.Theme = Theme
 -- Solo cambian Accent/AccentDim: el resto del tema (fondo, texto, etc.)
 -- se mantiene igual, así que el cambio es puramente de "color de marca".
 local ThemePalettes = {
-	Rojo = { Accent = Color3.fromRGB(214, 38, 51), AccentDim = Color3.fromRGB(150, 26, 36) },
-	Azul = { Accent = Color3.fromRGB(45, 130, 230), AccentDim = Color3.fromRGB(28, 88, 168) },
-	Negro = { Accent = Color3.fromRGB(80, 80, 86), AccentDim = Color3.fromRGB(40, 40, 44) },
+	Rojo = {
+		Accent = Color3.fromRGB(214, 38, 51), AccentDim = Color3.fromRGB(150, 26, 36),
+		Background = Color3.fromRGB(46, 12, 16), Sidebar = Color3.fromRGB(42, 11, 15),
+		Panel = Color3.fromRGB(58, 16, 20), PanelAlt = Color3.fromRGB(70, 20, 25),
+		Stroke = Color3.fromRGB(90, 30, 35),
+	},
+	Azul = {
+		Accent = Color3.fromRGB(45, 130, 230), AccentDim = Color3.fromRGB(28, 88, 168),
+		Background = Color3.fromRGB(13, 19, 38), Sidebar = Color3.fromRGB(12, 17, 34),
+		Panel = Color3.fromRGB(17, 25, 46), PanelAlt = Color3.fromRGB(23, 34, 58),
+		Stroke = Color3.fromRGB(32, 48, 82),
+	},
+	Negro = {
+		Accent = Color3.fromRGB(80, 80, 86), AccentDim = Color3.fromRGB(40, 40, 44),
+		Background = Color3.fromRGB(20, 20, 22), Sidebar = Color3.fromRGB(18, 18, 20),
+		Panel = Color3.fromRGB(26, 26, 29), PanelAlt = Color3.fromRGB(34, 34, 38),
+		Stroke = Color3.fromRGB(46, 46, 50),
+	},
 }
 SugarUI.ThemePalettes = ThemePalettes
 SugarUI.CurrentPalette = "Rojo"
@@ -200,14 +215,23 @@ end
 
 -- Atajo para el caso más común: una propiedad de color sólido (ej.
 -- BackgroundColor3 de un botón) que siempre debe pasar a ser Theme.Accent.
-local function trackAccentColor(inst, prop)
+-- Versión genérica: engancha CUALQUIER propiedad de color de CUALQUIER
+-- instancia a CUALQUIER clave del Theme (no solo Accent). Esto es lo que
+-- permite que, además del acento, los FONDOS (Background/Sidebar/Panel/
+-- PanelAlt) también se repinten al elegir una paleta.
+local function trackThemeColor(inst, prop, themeKey)
 	prop = prop or "BackgroundColor3"
+	themeKey = themeKey or "Accent"
 	onAccentChanged(function()
 		if inst and inst.Parent then
-			inst[prop] = Theme.Accent
+			inst[prop] = Theme[themeKey]
 		end
 	end)
 	return inst
+end
+
+local function trackAccentColor(inst, prop)
+	return trackThemeColor(inst, prop, "Accent")
 end
 
 -- ============================================================
@@ -229,7 +253,16 @@ local function corner(radius)
 end
 
 local function stroke(color, thickness)
-	return new("UIStroke", { Color = color or Theme.Stroke, Thickness = thickness or 1 })
+	local usesDefault = (color == nil)
+	local s = new("UIStroke", { Color = color or Theme.Stroke, Thickness = thickness or 1 })
+	if usesDefault then
+		onAccentChanged(function()
+			if s and s.Parent then
+				s.Color = Theme.Stroke
+			end
+		end)
+	end
+	return s
 end
 
 local function pad(all, top, right, bottom, left)
@@ -266,6 +299,19 @@ local function hoverAccentTint(guiObject)
 	end)
 	guiObject.MouseLeave:Connect(function()
 		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme.Accent }):Play()
+	end)
+end
+
+-- Igual que hoverAccentTint pero para pares de colores de FONDO (Panel/
+-- PanelAlt, Sidebar/PanelAlt, etc.) que ahora también cambian de paleta.
+-- Lee Theme[baseKey]/Theme[hoverKey] en el momento del hover, nunca un
+-- valor viejo capturado desde que se creó el elemento.
+local function hoverThemeTint(guiObject, baseKey, hoverKey)
+	guiObject.MouseEnter:Connect(function()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme[hoverKey] }):Play()
+	end)
+	guiObject.MouseLeave:Connect(function()
+		TweenService:Create(guiObject, TweenInfo.new(0.12), { BackgroundColor3 = Theme[baseKey] }):Play()
 	end)
 end
 
@@ -313,8 +359,13 @@ function SugarUI:SetAccentColor(paletteName)
 	end
 
 	SugarUI.CurrentPalette = paletteName
-	Theme.Accent = palette.Accent
-	Theme.AccentDim = palette.AccentDim
+	Theme.Accent     = palette.Accent
+	Theme.AccentDim  = palette.AccentDim
+	Theme.Background = palette.Background
+	Theme.Sidebar    = palette.Sidebar
+	Theme.Panel      = palette.Panel
+	Theme.PanelAlt   = palette.PanelAlt
+	Theme.Stroke     = palette.Stroke
 
 	for _, listener in ipairs(accentListeners) do
 		pcall(listener)
@@ -444,6 +495,9 @@ function SugarUI:CreateWindow(config)
 		ClipsDescendants = true,
 		Parent = ScreenGui,
 	}, { corner(22), stroke(Theme.Stroke, 1) })
+	if not config.BackgroundColor then
+		trackThemeColor(Root, "BackgroundColor3", "Background")
+	end
 
 	local MARGIN = 12
 	local GAP = 10
@@ -460,6 +514,7 @@ function SugarUI:CreateWindow(config)
 		BackgroundTransparency = Theme.PanelTransparency,
 		Parent = Root,
 	}, { corner(16), stroke(Theme.Stroke, 1) })
+	trackThemeColor(TopBar, "BackgroundColor3", "Sidebar")
 
 	local TopBarLeft = new("Frame", {
 		Name = "TopBarLeft",
@@ -520,6 +575,7 @@ function SugarUI:CreateWindow(config)
 		LayoutOrder = 3,
 		Parent = TopBarLeft,
 	}, { corner(16), stroke(Theme.Stroke, 1) })
+	trackThemeColor(ServerPill, "BackgroundColor3", "PanelAlt")
 
 	new("TextLabel", {
 		Text = "Azucar UI",
@@ -572,8 +628,9 @@ function SugarUI:CreateWindow(config)
 		BackgroundTransparency = Theme.PanelTransparency,
 		Parent = Root,
 	}, { corner(16), stroke(Theme.Stroke, 1) })
+	trackThemeColor(Sidebar, "BackgroundColor3", "Sidebar")
 
-	new("TextBox", {
+	local SearchBox = new("TextBox", {
 		PlaceholderText = "Buscar pestaña...",
 		Text = "",
 		Font = Theme.Font,
@@ -588,6 +645,7 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(0, 16, 0, 16),
 		Parent = Sidebar,
 	}, { corner(18), pad(0, 0, 0, 0, 12), stroke(Theme.Stroke, 1) })
+	trackThemeColor(SearchBox, "BackgroundColor3", "PanelAlt")
 
 	local SidebarList = new("ScrollingFrame", {
 		Name = "SidebarList",
@@ -629,6 +687,7 @@ function SugarUI:CreateWindow(config)
 		BackgroundTransparency = Theme.PanelTransparency,
 		Parent = Root,
 	}, { corner(16), stroke(Theme.Stroke, 1) })
+	trackThemeColor(Content, "BackgroundColor3", "Panel")
 
 	local ContentScroll = new("ScrollingFrame", {
 		Size = UDim2.new(1, 0, 1, 0),
@@ -838,6 +897,7 @@ function SugarUI:CreateWindow(config)
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		}),
 	})
+	trackThemeColor(ColorMenu, "BackgroundColor3", "PanelAlt")
 
 	-- Las muestras de color del menú (colorSwatch) usan a propósito el
 	-- color FIJO de cada paleta (ThemePalettes[paletteName].Accent) y NO
@@ -1106,7 +1166,7 @@ function SugarUI:CreateTab(config)
 	})
 
 	if not isFirst then
-		hoverTint(TabButton, Theme.Sidebar, Theme.PanelAlt)
+		hoverThemeTint(TabButton, "Sidebar", "PanelAlt")
 	end
 
 	local Page = new("Frame", {
@@ -1347,9 +1407,10 @@ function SugarUI:CreateQuickAccess(config)
 		LayoutOrder = self._rowCount,
 		Parent = self.Page,
 	}, { corner(18), stroke(Theme.Stroke, 1), pad(16) })
+	trackThemeColor(Card, "BackgroundColor3", "Panel")
 	self._rowCount += 1
 
-	new("TextLabel", {
+	trackThemeColor(new("TextLabel", {
 		Text = config.Icon or "•",
 		Font = Theme.FontBold,
 		TextSize = 15,
@@ -1357,7 +1418,7 @@ function SugarUI:CreateQuickAccess(config)
 		BackgroundColor3 = Theme.PanelAlt,
 		Size = UDim2.new(0, 34, 0, 34),
 		Parent = Card,
-	}, { corner(17) })
+	}, { corner(17) }), "BackgroundColor3", "PanelAlt")
 
 	new("TextLabel", {
 		Text = config.Title or "Acceso",
@@ -1391,7 +1452,7 @@ function SugarUI:CreateQuickAccess(config)
 	table.insert(self.Window._connections, ClickOverlay.MouseButton1Click:Connect(function()
 		QuickAccess:Set()
 	end))
-	hoverTint(Card, Theme.Panel, Theme.PanelAlt)
+	hoverThemeTint(Card, "Panel", "PanelAlt")
 
 	registerFlag(config.Flag, QuickAccess, nil)
 	return QuickAccess
@@ -1454,6 +1515,7 @@ function SugarUI:CreateToggle(config)
 		LayoutOrder = self._rowCount,
 		Parent = self.Page,
 	}, { corner(16), stroke(Theme.Stroke, 1), pad(0, 0, 16, 0, 16) })
+	trackThemeColor(Row, "BackgroundColor3", "Panel")
 	self._rowCount += 1
 
 	new("TextLabel", {
@@ -1539,6 +1601,7 @@ function SugarUI:CreateSlider(config)
 		LayoutOrder = self._rowCount,
 		Parent = self.Page,
 	}, { corner(16), stroke(Theme.Stroke, 1), pad(0, 10, 16, 10, 16) })
+	trackThemeColor(Row, "BackgroundColor3", "Panel")
 	self._rowCount += 1
 
 	new("TextLabel", {
@@ -1571,6 +1634,7 @@ function SugarUI:CreateSlider(config)
 		BackgroundColor3 = Theme.PanelAlt,
 		Parent = Row,
 	}, { corner(4) })
+	trackThemeColor(Track, "BackgroundColor3", "PanelAlt")
 
 	local function ratio(v)
 		return (v - min) / math.max(max - min, 1e-6)
@@ -1672,6 +1736,7 @@ function SugarUI:CreateDropdown(config)
 		ZIndex = 2,
 		Parent = self.Page,
 	}, { corner(16), stroke(Theme.Stroke, 1), pad(0, 0, 16, 0, 16) })
+	trackThemeColor(Row, "BackgroundColor3", "Panel")
 	self._rowCount += 1
 
 	new("TextLabel", {
@@ -1717,6 +1782,7 @@ function SugarUI:CreateDropdown(config)
 		new("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder }),
 	})
 	trackAccentColor(ListFrame, "ScrollBarImageColor3")
+	trackThemeColor(ListFrame, "BackgroundColor3", "PanelAlt")
 
 	local Dropdown = setmetatable({ Value = selected, Callback = callback, Options = options, _threads = {} }, SugarUI)
 
@@ -1744,7 +1810,7 @@ function SugarUI:CreateDropdown(config)
 			Size = UDim2.new(1, 0, 0, 28),
 			Parent = ListFrame,
 		}, { corner(8), pad(0, 0, 8, 0, 8) })
-		hoverTint(OptionBtn, Theme.Panel, Theme.Sidebar)
+		hoverThemeTint(OptionBtn, "Panel", "Sidebar")
 
 		table.insert(self.Window._connections, OptionBtn.MouseButton1Click:Connect(function()
 			Dropdown:Set(optionValue)
@@ -1776,6 +1842,7 @@ function SugarUI:CreateKeybind(config)
 		LayoutOrder = self._rowCount,
 		Parent = self.Page,
 	}, { corner(16), stroke(Theme.Stroke, 1), pad(0, 0, 16, 0, 16) })
+	trackThemeColor(Row, "BackgroundColor3", "Panel")
 	self._rowCount += 1
 
 	new("TextLabel", {
@@ -1800,6 +1867,7 @@ function SugarUI:CreateKeybind(config)
 		Position = UDim2.new(1, -90, 0.5, -14),
 		Parent = Row,
 	}, { corner(8), stroke(Theme.Stroke, 1) })
+	trackThemeColor(KeyButton, "BackgroundColor3", "PanelAlt")
 
 	local Keybind = setmetatable({ Value = currentKey, Callback = callback, _threads = {} }, SugarUI)
 
