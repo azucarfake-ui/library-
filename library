@@ -873,7 +873,7 @@ function SugarUI:CreateWindow(config)
 	})
 
 	do
-		local ringSize = 11
+		local ringSize = 10
 		new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
@@ -892,15 +892,35 @@ function SugarUI:CreateWindow(config)
 			Parent = GearButton,
 		}, { corner(2) })
 
-		local teethCount, toothW, toothH, radius = 6, 3.4, 4.2, 6.8
-		for i = 0, teethCount - 1 do
-			local angle = i * (360 / teethCount)
-			local rad = math.rad(angle)
+		-- 4 dientes en cruz, sin rotación ni trigonometría: solo rectángulos
+		-- rectos arriba/abajo/izquierda/derecha con números enteros exactos
+		-- (encajan pixel a pixel en el cuadro de 20x20), así nunca queda
+		-- ninguno "corrido" o torcido por redondeo de píxeles.
+		local armW, armH, gap = 3, 4, 1
+		local specs = {
+			{ 10 - armW / 2, 0 },                          -- arriba
+			{ 10 - armW / 2, 20 - armH },                   -- abajo
+		}
+		for _, s in ipairs(specs) do
 			new("Frame", {
 				Name = "Tooth",
-				Position = UDim2.new(0, 10 + math.cos(rad) * radius - toothW / 2, 0, 10 + math.sin(rad) * radius - toothH / 2),
-				Size = UDim2.new(0, toothW, 0, toothH),
-				Rotation = angle + 90,
+				Position = UDim2.new(0, s[1], 0, s[2]),
+				Size = UDim2.new(0, armW, 0, armH),
+				BackgroundColor3 = Theme.Text,
+				BorderSizePixel = 0,
+				ZIndex = 3,
+				Parent = GearButton,
+			})
+		end
+		local hSpecs = {
+			{ 0, 10 - armW / 2 },                           -- izquierda
+			{ 20 - armH, 10 - armW / 2 },                   -- derecha
+		}
+		for _, s in ipairs(hSpecs) do
+			new("Frame", {
+				Name = "Tooth",
+				Position = UDim2.new(0, s[1], 0, s[2]),
+				Size = UDim2.new(0, armH, 0, armW),
 				BackgroundColor3 = Theme.Text,
 				BorderSizePixel = 0,
 				ZIndex = 3,
@@ -917,7 +937,7 @@ function SugarUI:CreateWindow(config)
 		BackgroundColor3 = Theme.PanelAlt,
 		Visible = false,
 		ZIndex = 10,
-		Parent = Bubble,
+		Parent = GearButton,
 	}, {
 		corner(14),
 		stroke(Theme.Stroke, 1),
@@ -1846,6 +1866,7 @@ function SugarUI:CreateDropdown(config)
 			Size = UDim2.new(1, 0, 0, 28),
 			Parent = ListFrame,
 		}, { corner(8), pad(0, 0, 8, 0, 8) })
+		trackThemeColor(OptionBtn, "BackgroundColor3", "Panel")
 		hoverThemeTint(OptionBtn, "Panel", "Sidebar")
 
 		table.insert(self.Window._connections, OptionBtn.MouseButton1Click:Connect(function()
