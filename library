@@ -736,6 +736,16 @@ function SugarUI:CreateWindow(config)
 	})
 	trackAccentColor(Bubble, "BackgroundColor3")
 
+	new("Frame", {
+		Name = "Sheen",
+		Size = UDim2.new(1, -8, 0, BUBBLE_H * 0.42),
+		Position = UDim2.new(0, 4, 0, 3),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.86,
+		ZIndex = 0,
+		Parent = Bubble,
+	}, { corner(BUBBLE_H * 0.42 / 2) })
+
 	local function buildReticle(parent, size, color, layoutOrder)
 		local box = new("Frame", {
 			Size = UDim2.new(0, size, 0, size),
@@ -800,6 +810,15 @@ function SugarUI:CreateWindow(config)
 			Rotation = 35,
 		})
 
+		new("Frame", {
+			Size = UDim2.new(0, size, 0, size),
+			Position = UDim2.new(0, 1, 0, 2),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = 0.8,
+			ZIndex = 0,
+			Parent = box,
+		}, { corner(size / 2) })
+
 		local Head = new("Frame", {
 			Size = UDim2.new(0, size, 0, size),
 			BackgroundColor3 = Color3.fromRGB(255, 133, 178),
@@ -825,6 +844,14 @@ function SugarUI:CreateWindow(config)
 			BackgroundTransparency = 0.35,
 			Parent = Head,
 		}, { corner(6) })
+
+		new("Frame", {
+			Size = UDim2.new(0, size * 0.1, 0, size * 0.1),
+			Position = UDim2.new(0, size * 0.62, 0, size * 0.56),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BackgroundTransparency = 0.55,
+			Parent = Head,
+		}, { corner(3) })
 
 		return box
 	end
@@ -855,23 +882,34 @@ function SugarUI:CreateWindow(config)
 	})
 
 	do
-		local ring = new("Frame", {
+		local ringSize = 12
+		new("Frame", {
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
-			Size = UDim2.new(0, 11, 0, 11),
+			Size = UDim2.new(0, ringSize, 0, ringSize),
 			BackgroundTransparency = 1,
 			ZIndex = 3,
 			Parent = GearButton,
-		}, { stroke(Theme.Text, 2) })
-		corner(6).Parent = ring
+		}, { corner(ringSize / 2), stroke(Theme.Text, 2) })
 
-		for i = 1, 6 do
+		new("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			Size = UDim2.new(0, 3, 0, 3),
+			BackgroundColor3 = Theme.Text,
+			ZIndex = 3,
+			Parent = GearButton,
+		}, { corner(2) })
+
+		local teethCount, toothW, toothH, radius = 8, 2.2, 5, 7.5
+		for i = 0, teethCount - 1 do
+			local angle = i * (360 / teethCount)
+			local rad = math.rad(angle)
 			new("Frame", {
 				Name = "Tooth",
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.new(0.5, 0, 0.5, 0),
-				Size = UDim2.new(0, 2.4, 0, 16),
-				Rotation = (i - 1) * 60,
+				Position = UDim2.new(0, 10 + math.cos(rad) * radius - toothW / 2, 0, 10 + math.sin(rad) * radius - toothH / 2),
+				Size = UDim2.new(0, toothW, 0, toothH),
+				Rotation = angle + 90,
 				BackgroundColor3 = Theme.Text,
 				BorderSizePixel = 0,
 				ZIndex = 3,
