@@ -472,7 +472,7 @@ local function playOpenAnimation(root, targetSize, targetPosition)
 		targetPosition.X.Scale, targetPosition.X.Offset,
 		targetPosition.Y.Scale, targetPosition.Y.Offset + targetSize.Y.Offset / 2
 	)
-	TweenService:Create(root, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+	TweenService:Create(root, TweenInfo.new(1.0, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 		Size = targetSize,
 		Position = targetPosition,
 	}):Play()
@@ -1129,7 +1129,53 @@ function SugarUI:CreateWindow(config)
 		end
 	end))
 
-	playOpenAnimation(Root, Window._targetSize, Window._targetPosition)
+	Root.Visible = false
+
+	local Splash = new("TextButton", {
+		Name = "Splash",
+		Text = "",
+		Active = false,
+		AutoButtonColor = false,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 0, 44),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		BackgroundColor3 = Theme.Accent,
+		BackgroundTransparency = 1,
+		Parent = ScreenGui,
+	}, {
+		corner(22),
+		stroke(Theme.Stroke, 1),
+		accentGradient(135),
+		pad(0, 0, 22, 0, 22),
+	})
+	trackAccentColor(Splash, "BackgroundColor3")
+
+	local SplashLabel = new("TextLabel", {
+		Text = "Sugar UI by azucarfake00",
+		Font = Theme.FontBold,
+		TextSize = 16,
+		TextColor3 = Theme.Text,
+		TextTransparency = 1,
+		BackgroundTransparency = 1,
+		AutomaticSize = Enum.AutomaticSize.X,
+		Size = UDim2.new(0, 0, 1, 0),
+		Parent = Splash,
+	})
+
+	task.spawn(function()
+		TweenService:Create(Splash, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
+		TweenService:Create(SplashLabel, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+		task.wait(1.5)
+		TweenService:Create(SplashLabel, TweenInfo.new(0.35), { TextTransparency = 1 }):Play()
+		local fadeOut = TweenService:Create(Splash, TweenInfo.new(0.35), { BackgroundTransparency = 1 })
+		fadeOut:Play()
+		fadeOut.Completed:Wait()
+		Splash:Destroy()
+
+		Root.Visible = true
+		playOpenAnimation(Root, Window._targetSize, Window._targetPosition)
+	end)
 
 	table.insert(SugarUI.Windows, Window)
 	return Window
