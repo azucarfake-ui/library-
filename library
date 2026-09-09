@@ -319,33 +319,13 @@ local function hoverThemeTint(guiObject, baseKey, hoverKey)
 	end)
 end
 
--- FIX tamaño que "crece solo": la versión vieja calculaba el tamaño
--- presionado/restaurado SUMANDO Y RESTANDO sobre guiObject.Size en el
--- momento del evento. Eso tiene dos problemas:
---   1) MouseLeave llamaba a restore() (agranda) SIEMPRE, incluso si el
---      botón nunca se llegó a presionar — con solo pasar el mouse cerca
---      y alejarte ya se disparaba MouseLeave, y el botón crecía.
---   2) Como cada tween partía del tamaño ACTUAL (ya modificado por el
---      tween anterior) en vez de un tamaño base fijo, el error se iba
---      acumulando cada vez que pasabas el mouse cerca.
--- Ahora baseSize/pressedSize se calculan UNA sola vez al crear el botón,
--- y solo se restaura si realmente estaba presionado (isPressed).
 local function pressFeedback(guiObject)
-	local baseSize = guiObject.Size
-	local pressedSize = baseSize - UDim2.new(0, 4, 0, 2)
-	local isPressed = false
-
 	guiObject.MouseButton1Down:Connect(function()
-		isPressed = true
-		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = pressedSize }):Play()
+		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = guiObject.Size - UDim2.new(0, 4, 0, 2) }):Play()
 	end)
-
 	local function restore()
-		if not isPressed then return end
-		isPressed = false
-		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = baseSize }):Play()
+		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = guiObject.Size + UDim2.new(0, 4, 0, 2) }):Play()
 	end
-
 	guiObject.MouseButton1Up:Connect(restore)
 	guiObject.MouseLeave:Connect(restore)
 end
@@ -481,6 +461,21 @@ local function resolveCallback(config)
 	end
 
 	return function() end
+end
+
+-- Animación de apertura tipo "encender la tele": la ventana arranca
+-- como una línea fina horizontal, centrada verticalmente donde va a
+-- terminar, y se estira hacia arriba y abajo hasta su tamaño real.
+local function playOpenAnimation(root, targetSize, targetPosition)
+	root.Size = UDim2.new(targetSize.X.Scale, targetSize.X.Offset, 0, 2)
+	root.Position = UDim2.new(
+		targetPosition.X.Scale, targetPosition.X.Offset,
+		targetPosition.Y.Scale, targetPosition.Y.Offset + targetSize.Y.Offset / 2
+	)
+	TweenService:Create(root, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Size = targetSize,
+		Position = targetPosition,
+	}):Play()
 end
 
 local function registerFlag(flagName, controller, initialValue)
@@ -947,6 +942,27 @@ function SugarUI:CreateWindow(config)
 				Parent = GearButton,
 			})
 		end
+
+		-- 4 dientes diagonales (cuadraditos en las esquinas, sin rotación
+		-- tampoco) para completar 8 dientes en total.
+		local diagSize = 3
+		local diagSpecs = {
+			{ 3, 3 },   -- arriba-izquierda
+			{ 14, 3 },  -- arriba-derecha
+			{ 3, 14 },  -- abajo-izquierda
+			{ 14, 14 }, -- abajo-derecha
+		}
+		for _, s in ipairs(diagSpecs) do
+			new("Frame", {
+				Name = "Tooth",
+				Position = UDim2.new(0, s[1], 0, s[2]),
+				Size = UDim2.new(0, diagSize, 0, diagSize),
+				BackgroundColor3 = Theme.Text,
+				BorderSizePixel = 0,
+				ZIndex = 3,
+				Parent = GearButton,
+			})
+		end
 	end
 
 	local ColorMenu = new("Frame", {
@@ -1025,6 +1041,8 @@ function SugarUI:CreateWindow(config)
 		_tabs = {},
 		_sections = {},
 		_connections = {},
+		_targetSize = Root.Size,
+		_targetPosition = Root.Position,
 	}, SugarUI)
 
 	local function track(conn)
@@ -1111,6 +1129,8 @@ function SugarUI:CreateWindow(config)
 		end
 	end))
 
+	playOpenAnimation(Root, Window._targetSize, Window._targetPosition)
+
 	table.insert(SugarUI.Windows, Window)
 	return Window
 end
@@ -1121,6 +1141,7 @@ end
 function SugarUI:Show()
 	self.Root.Visible = true
 	if self.Bubble then self.Bubble.Visible = false end
+	playOpenAnimation(self.Root, self._targetSize, self._targetPosition)
 end
 
 function SugarUI:Hide()
