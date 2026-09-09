@@ -1138,11 +1138,12 @@ function SugarUI:CreateWindow(config)
 	end))
 
 	-- Deja la ventana ya en su forma "línea finita" (el estado inicial de
-	-- la animación de apertura) desde ahora, en vez de ocultarla con
-	-- Visible. Así, si algo más (la tecla K, un Show() externo) toca la
-	-- ventana durante los 2 segundos de presentación, en el peor caso se
-	-- ve una rayita fina — nunca se "pisa" con la presentación ni rompe
-	-- la secuencia.
+	-- la animación de apertura) pre-cargada, por si algo más (la tecla K,
+	-- un Show() externo) la abre antes de tiempo durante la presentación
+	-- — así al menos animaría bien en vez de aparecer de golpe a tamaño
+	-- completo. Pero se OCULTA de verdad mientras tanto, para que no se
+	-- vea la rayita fina de fondo.
+	Root.Visible = false
 	Root.Size = UDim2.new(Window._targetSize.X.Scale, Window._targetSize.X.Offset, 0, 2)
 	Root.Position = UDim2.new(
 		Window._targetPosition.X.Scale, Window._targetPosition.X.Offset,
@@ -1193,6 +1194,7 @@ function SugarUI:CreateWindow(config)
 		fadeOut.Completed:Wait()
 		Splash:Destroy()
 
+		Root.Visible = true
 		playOpenAnimation(Root, Window._targetSize, Window._targetPosition)
 	end)
 
