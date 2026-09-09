@@ -1150,13 +1150,14 @@ function SugarUI:CreateWindow(config)
 		Window._targetPosition.Y.Scale, Window._targetPosition.Y.Offset + Window._targetSize.Y.Offset / 2
 	)
 
+	local SPLASH_H = 58
 	local Splash = new("TextButton", {
 		Name = "Splash",
 		Text = "",
 		Active = false,
 		AutoButtonColor = false,
 		AutomaticSize = Enum.AutomaticSize.X,
-		Size = UDim2.new(0, 0, 0, 44),
+		Size = UDim2.new(0, 0, 0, SPLASH_H),
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		BackgroundColor3 = Theme.Accent,
@@ -1164,25 +1165,68 @@ function SugarUI:CreateWindow(config)
 		ZIndex = 500,
 		Parent = ScreenGui,
 	}, {
-		corner(22),
+		corner(SPLASH_H // 2),
 		stroke(Theme.Stroke, 1),
 		accentGradient(135),
-		pad(0, 0, 22, 0, 22),
+		pad(0, 0, 26, 0, 26),
+		new("UIListLayout", {
+			FillDirection = Enum.FillDirection.Horizontal,
+			VerticalAlignment = Enum.VerticalAlignment.Center,
+			Padding = UDim.new(0, 16),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+		}),
 	})
 	trackAccentColor(Splash, "BackgroundColor3")
 
 	local SplashLabel = new("TextLabel", {
 		Text = "Sugar UI by azucarfake00",
 		Font = Theme.FontBold,
-		TextSize = 16,
+		TextSize = 20,
 		TextColor3 = Theme.Text,
 		TextTransparency = 1,
 		BackgroundTransparency = 1,
 		ZIndex = 501,
 		AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 1, 0),
+		LayoutOrder = 1,
 		Parent = Splash,
 	})
+
+	-- Spinner: un aro incompleto (UIStroke + UIGradient de transparencia
+	-- que "corta" un tramo del círculo) que gira sin parar mientras
+	-- carga. No usa ninguna imagen — todo hecho con formas de Roblox.
+	local Spinner = new("Frame", {
+		Name = "Spinner",
+		Size = UDim2.new(0, 28, 0, 28),
+		BackgroundTransparency = 1,
+		ZIndex = 501,
+		LayoutOrder = 2,
+		Parent = Splash,
+	}, { corner(14) })
+
+	local SpinnerStroke = new("UIStroke", {
+		Thickness = 3,
+		Color = Color3.fromRGB(255, 70, 80),
+		Transparency = 0,
+	})
+	SpinnerStroke.Parent = Spinner
+
+	new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0),
+			NumberSequenceKeypoint.new(0.65, 0.25),
+			NumberSequenceKeypoint.new(0.68, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		}),
+	}).Parent = SpinnerStroke
+
+	task.spawn(function()
+		while Spinner and Spinner.Parent do
+			local spin = TweenService:Create(Spinner, TweenInfo.new(0.8, Enum.EasingStyle.Linear), { Rotation = Spinner.Rotation + 360 })
+			spin:Play()
+			spin.Completed:Wait()
+		end
+	end)
 
 	task.spawn(function()
 		TweenService:Create(Splash, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
