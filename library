@@ -1202,23 +1202,22 @@ function SugarUI:CreateWindow(config)
 		ZIndex = 501,
 		LayoutOrder = 2,
 		Parent = Splash,
-	}, { corner(14) })
-
-	local SpinnerStroke = new("UIStroke", {
-		Thickness = 3,
-		Color = Color3.fromRGB(255, 70, 80),
-		Transparency = 0,
 	})
-	SpinnerStroke.Parent = Spinner
 
-	new("UIGradient", {
-		Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0),
-			NumberSequenceKeypoint.new(0.65, 0.25),
-			NumberSequenceKeypoint.new(0.68, 1),
-			NumberSequenceKeypoint.new(1, 1),
-		}),
-	}).Parent = SpinnerStroke
+	local DOT_COUNT, DOT_SIZE, RADIUS = 8, 5, 10
+	for i = 0, DOT_COUNT - 1 do
+		local rad = math.rad(i * (360 / DOT_COUNT))
+		new("Frame", {
+			Name = "Dot",
+			Size = UDim2.new(0, DOT_SIZE, 0, DOT_SIZE),
+			Position = UDim2.new(0, 14 + math.cos(rad) * RADIUS - DOT_SIZE / 2, 0, 14 + math.sin(rad) * RADIUS - DOT_SIZE / 2),
+			BackgroundColor3 = Color3.fromRGB(255, 70, 80),
+			BackgroundTransparency = i / DOT_COUNT * 0.85,
+			BorderSizePixel = 0,
+			ZIndex = 501,
+			Parent = Spinner,
+		}, { corner(DOT_SIZE / 2) })
+	end
 
 	task.spawn(function()
 		while Spinner and Spinner.Parent do
