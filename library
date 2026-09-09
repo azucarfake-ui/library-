@@ -320,11 +320,19 @@ local function hoverThemeTint(guiObject, baseKey, hoverKey)
 end
 
 local function pressFeedback(guiObject)
+	local originalSize = guiObject.Size
+	local pressedSize = originalSize - UDim2.new(0, 4, 0, 2)
+	local isPressed = false
+
 	guiObject.MouseButton1Down:Connect(function()
-		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = guiObject.Size - UDim2.new(0, 4, 0, 2) }):Play()
+		isPressed = true
+		TweenService:Create(guiObject, TweenInfo.new(0.06), { Size = pressedSize }):Play()
 	end)
+
 	local function restore()
-		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = guiObject.Size + UDim2.new(0, 4, 0, 2) }):Play()
+		if not isPressed then return end
+		isPressed = false
+		TweenService:Create(guiObject, TweenInfo.new(0.08), { Size = originalSize }):Play()
 	end
 	guiObject.MouseButton1Up:Connect(restore)
 	guiObject.MouseLeave:Connect(restore)
@@ -1129,7 +1137,17 @@ function SugarUI:CreateWindow(config)
 		end
 	end))
 
-	Root.Visible = false
+	-- Deja la ventana ya en su forma "línea finita" (el estado inicial de
+	-- la animación de apertura) desde ahora, en vez de ocultarla con
+	-- Visible. Así, si algo más (la tecla K, un Show() externo) toca la
+	-- ventana durante los 2 segundos de presentación, en el peor caso se
+	-- ve una rayita fina — nunca se "pisa" con la presentación ni rompe
+	-- la secuencia.
+	Root.Size = UDim2.new(Window._targetSize.X.Scale, Window._targetSize.X.Offset, 0, 2)
+	Root.Position = UDim2.new(
+		Window._targetPosition.X.Scale, Window._targetPosition.X.Offset,
+		Window._targetPosition.Y.Scale, Window._targetPosition.Y.Offset + Window._targetSize.Y.Offset / 2
+	)
 
 	local Splash = new("TextButton", {
 		Name = "Splash",
@@ -1142,6 +1160,7 @@ function SugarUI:CreateWindow(config)
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		BackgroundColor3 = Theme.Accent,
 		BackgroundTransparency = 1,
+		ZIndex = 500,
 		Parent = ScreenGui,
 	}, {
 		corner(22),
@@ -1158,6 +1177,7 @@ function SugarUI:CreateWindow(config)
 		TextColor3 = Theme.Text,
 		TextTransparency = 1,
 		BackgroundTransparency = 1,
+		ZIndex = 501,
 		AutomaticSize = Enum.AutomaticSize.X,
 		Size = UDim2.new(0, 0, 1, 0),
 		Parent = Splash,
@@ -1166,14 +1186,13 @@ function SugarUI:CreateWindow(config)
 	task.spawn(function()
 		TweenService:Create(Splash, TweenInfo.new(0.35), { BackgroundTransparency = 0 }):Play()
 		TweenService:Create(SplashLabel, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
-		task.wait(1.5)
+		task.wait(2)
 		TweenService:Create(SplashLabel, TweenInfo.new(0.35), { TextTransparency = 1 }):Play()
 		local fadeOut = TweenService:Create(Splash, TweenInfo.new(0.35), { BackgroundTransparency = 1 })
 		fadeOut:Play()
 		fadeOut.Completed:Wait()
 		Splash:Destroy()
 
-		Root.Visible = true
 		playOpenAnimation(Root, Window._targetSize, Window._targetPosition)
 	end)
 
